@@ -45,7 +45,10 @@ class ToolLoopNode(Node):
         self.preview_limit = min(max(preview_limit, 1), 100)
 
     def execute(self, context: Context) -> NodeResult:
-        started = time.monotonic()
+        # perf_counter has sub-millisecond resolution on Windows, while this
+        # runtime's monotonic clock can advance only every 15.625 ms.  A coarse
+        # clock can let short configured budgets run extra rounds.
+        deadline = time.perf_counter() + self.timeout_seconds
         context.tool_loop_history = []
         context.tool_loop_status = "completed"
         context.tool_loop_exit_reason = "final_answer"
@@ -53,13 +56,12 @@ class ToolLoopNode(Node):
         seen_actions: set[str] = set()
 
         for round_number in range(1, self.max_rounds + 1):
-            elapsed = time.monotonic() - started
-            if elapsed >= self.timeout_seconds:
-                context.tool_loop_status = "timeout"
-                context.tool_loop_exit_reason = "timeout"
-                return self.success("Tool loop timeout reached")
+            if time.perf_counter() >= deadline:
+                return self._timeout(context)
             try:
                 decision = self._ask(context, observations, round_number)
+                if time.perf_counter() >= deadline:
+                    return self._timeout(context)
                 action = decision.get("action")
                 params = decision.get("params") or {}
                 if action not in ALLOWED_ACTIONS:
@@ -115,6 +117,8 @@ class ToolLoopNode(Node):
                     {"round": round_number, "action": action, "observation": observation}
                 )
                 self._record(context, round_number, action, params, observation)
+                if time.perf_counter() >= deadline:
+                    return self._timeout(context)
             except ModelResponseError as exc:
                 context.tool_loop_status = "error"
                 context.tool_loop_exit_reason = "model_error"
@@ -135,6 +139,11 @@ class ToolLoopNode(Node):
         context.tool_loop_status = "max_rounds"
         context.tool_loop_exit_reason = "max_rounds"
         return self.success("Tool loop maximum rounds reached")
+
+    def _timeout(self, context: Context) -> NodeResult:
+        context.tool_loop_status = "timeout"
+        context.tool_loop_exit_reason = "timeout"
+        return self.success("Tool loop timeout reached")
 
     def _ask(
         self,

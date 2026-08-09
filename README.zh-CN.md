@@ -14,7 +14,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-只读执行-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20治理-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-247%20passing-2EA44F)
+![Tests](https://img.shields.io/badge/tests-249%20passing-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
@@ -30,6 +30,21 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 
 > QueryForge 当前专注 SQLite 和受控环境，是面向作品展示与架构验证的参考项目，
 > 不是可直接公网部署的多租户分析服务。
+
+## 增强版说明
+
+本仓库是在 [lanerchenbuna/QueryForge](https://github.com/lanerchenbuna/QueryForge)
+基础上维护的衍生版本。当前增强工作主要聚焦 Windows 开发可靠性和可预测的资源管理：
+
+- 确保 SQLite 连接在成功及异常路径下都能确定性关闭；
+- 在数据库执行边界使用短生命周期、只读连接；
+- 在 Windows 上使用高精度、基于截止时间的 Tool Loop 超时控制；
+- 增加跨平台回归覆盖，当前 **249 项测试全部通过**。
+
+### 归属与许可证说明
+
+原始设计与代码归属于上游项目及其贡献者。制作此衍生版本时，上游仓库未提供许可证，
+因此本仓库保持私有，仅用于学习和评估。公开再分发或商业使用前，请先获得上游著作权人的授权。
 
 ## 产品界面
 

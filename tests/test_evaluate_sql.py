@@ -1,9 +1,10 @@
 import importlib.util
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +59,7 @@ class EvaluateSqlTest(unittest.TestCase):
     def test_metrics_include_semantics_policy_latency_cost_and_candidate_uplift(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "evaluation.sqlite"
-            with sqlite3.connect(database) as connection:
+            with sqlite_connection(database) as connection:
                 connection.execute("CREATE TABLE numbers (value INTEGER)")
                 connection.execute("INSERT INTO numbers VALUES (1)")
             cases = [

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ from queryforge.domain.semantic.schemas import (
     SemanticRelationship,
 )
 from queryforge.infrastructure.db.sqlite_connector import SQLiteConnector
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 PII_COLUMN_PATTERN = re.compile(
@@ -232,7 +232,7 @@ class SemanticModelBuilder:
     ) -> dict[str, dict[str, Any]]:
         profiles: dict[str, dict[str, Any]] = {}
         uri = f"{self.database_path.as_uri()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as connection:
+        with sqlite_connection(uri, uri=True) as connection:
             connection.execute("PRAGMA query_only = ON")
             for schema in schemas:
                 table = self._quote(schema.table_name)
@@ -359,7 +359,7 @@ class SemanticModelBuilder:
         if row_count == 0:
             return candidates[:1]
         uri = f"{self.database_path.as_uri()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as connection:
+        with sqlite_connection(uri, uri=True) as connection:
             connection.execute("PRAGMA query_only = ON")
             for candidate in candidates:
                 distinct, non_null = connection.execute(

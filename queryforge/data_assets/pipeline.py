@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +35,7 @@ from queryforge.domain.semantic import (
     SemanticModelLoader,
 )
 from queryforge.infrastructure.db.sqlite_connector import SQLiteConnector
+from queryforge.infrastructure.db.connection import sqlite_connection
 from queryforge.infrastructure.tools.database_tool import DatabaseTool
 
 
@@ -248,7 +248,7 @@ class DataAssetBuilder:
         return read_source(asset.source)
 
     def _initialize_metadata(self) -> None:
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS asset_watermarks (
@@ -303,7 +303,7 @@ class DataAssetBuilder:
             )
 
     def _load_watermark(self, asset_name: str) -> str | None:
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             row = connection.execute(
                 "SELECT watermark_value FROM asset_watermarks WHERE asset_name = ?",
                 (asset_name,),
@@ -311,7 +311,7 @@ class DataAssetBuilder:
         return str(row[0]) if row else None
 
     def _save_watermark(self, asset_name: str, value: str, run_id: str) -> None:
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.execute(
                 """
                 INSERT INTO asset_watermarks(asset_name, watermark_value, run_id, updated_at)
@@ -327,7 +327,7 @@ class DataAssetBuilder:
     def _write_staging(self, asset_name: str, rows: list[dict[str, Any]]) -> None:
         table = normalize_identifier(f"staging_{asset_name}")
         if not rows:
-            with sqlite3.connect(self.staging_database) as connection:
+            with sqlite_connection(self.staging_database) as connection:
                 connection.execute(f"DROP TABLE IF EXISTS {_quote(table)}")
             return
         _replace_table(self.staging_database, table, rows)
@@ -340,7 +340,7 @@ class DataAssetBuilder:
     ) -> None:
         if not quarantined:
             return
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.executemany(
                 """
                 INSERT INTO asset_quarantine(
@@ -364,7 +364,7 @@ class DataAssetBuilder:
     ) -> set[tuple[Any, ...]]:
         if not key_columns or not self.publish_database.is_file():
             return set()
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
                 (table,),
@@ -395,7 +395,7 @@ class DataAssetBuilder:
         for row in rows:
             if list(row) != columns:
                 raise DataAssetError("Normalized rows do not share a stable schema")
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             table_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
                 (table,),
@@ -434,7 +434,7 @@ class DataAssetBuilder:
         columns = self._published_columns(table)
         if not columns:
             return
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.execute(
                 """
                 INSERT INTO semantic_catalog(
@@ -458,7 +458,7 @@ class DataAssetBuilder:
     def _published_columns(self, table: str) -> list[str]:
         if not self.publish_database.is_file():
             return []
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             return [
                 str(row[1])
                 for row in connection.execute(f"PRAGMA table_info({_quote(table)})")
@@ -490,7 +490,7 @@ class DataAssetBuilder:
         path: Path,
         model_spec: AssetSemanticModelSpec,
     ) -> bool:
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             rows = connection.execute(
                 """
                 SELECT asset_name, target_table, columns_json, semantic_json
@@ -641,7 +641,7 @@ class DataAssetBuilder:
         return SemanticContractValidator.validate(context.model, self.publish_database)
 
     def _record_contract_report(self, report, model_path: Path) -> None:
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.execute(
                 """
                 INSERT INTO semantic_contract_reports(
@@ -667,7 +667,7 @@ class DataAssetBuilder:
 
     def _record_lineage(self, result: AssetBuildResult, status: str) -> None:
         self._initialize_metadata()
-        with sqlite3.connect(self.metadata_database) as connection:
+        with sqlite_connection(self.metadata_database) as connection:
             connection.execute(
                 """
                 INSERT INTO asset_lineage(
@@ -701,7 +701,7 @@ def _replace_table(database: Path, table: str, rows: list[dict[str, Any]]) -> No
     for row in rows:
         if list(row) != columns:
             raise DataAssetError("Normalized rows do not share a stable schema")
-    with sqlite3.connect(database) as connection:
+    with sqlite_connection(database) as connection:
         connection.execute(f"DROP TABLE IF EXISTS {_quote(table)}")
         types = _infer_types(rows, columns)
         connection.execute(

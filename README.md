@@ -14,7 +14,7 @@ policy enforcement, bounded recovery, and production-friendly delivery interface
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-read--only-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20policy-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-247%20passing-2EA44F)
+![Tests](https://img.shields.io/badge/tests-249%20passing-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
@@ -34,6 +34,26 @@ complete run artifacts.
 
 > QueryForge currently targets SQLite and controlled environments. It is a
 > portfolio-grade reference architecture, not a multi-tenant analytics service.
+
+## Enhanced Edition
+
+This repository is a maintained derivative of
+[lanerchenbuna/QueryForge](https://github.com/lanerchenbuna/QueryForge). The
+current enhancement focuses on reliable Windows development and predictable
+resource handling:
+
+- deterministic SQLite connection cleanup across success and failure paths;
+- short-lived, read-only database connections at the execution boundary;
+- high-resolution, deadline-based tool-loop timeouts on Windows; and
+- cross-platform regression coverage, with **249 tests passing**.
+
+### Attribution and licensing
+
+The original design and code are attributed to the upstream project and its
+contributors. The upstream repository did not include a license when this
+derivative was prepared. This repository is therefore kept private for study
+and evaluation. Obtain permission from the upstream copyright holder before
+public redistribution or commercial use.
 
 ## Product Tour
 

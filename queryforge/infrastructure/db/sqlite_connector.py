@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from queryforge.core.schemas.models import (
@@ -18,7 +20,14 @@ class SQLiteConnectorError(RuntimeError):
 
 
 class SQLiteConnector:
-    """Open one existing SQLite database with read-only enforcement."""
+    """Access one existing SQLite database with read-only enforcement.
+
+    Connections are intentionally short lived.  Keeping a read-only SQLite
+    connection open for the lifetime of this object prevents database files
+    from being replaced or deleted on Windows, which breaks asset publication
+    rollback and test cleanup.  Each operation therefore opens, configures,
+    and deterministically closes its own connection.
+    """
 
     def __init__(self, database_path: str) -> None:
         self.database_path = Path(database_path).expanduser().resolve()
@@ -27,25 +36,22 @@ class SQLiteConnector:
                 f"SQLite database does not exist: {self.database_path}"
             )
 
-        try:
-            uri = f"{self.database_path.as_uri()}?mode=ro"
-            self._connection = sqlite3.connect(uri, uri=True)
-            self._connection.execute("PRAGMA query_only = ON")
-        except sqlite3.Error as exc:
-            raise SQLiteConnectorError(
-                f"Could not open SQLite database {self.database_path}: {exc}"
-            ) from exc
+        self._uri = f"{self.database_path.as_uri()}?mode=ro"
+        self._closed = False
+        with self._connection():
+            pass
 
     def list_tables(self) -> list[str]:
         try:
-            rows = self._connection.execute(
-                """
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-                ORDER BY name
-                """
-            ).fetchall()
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name
+                    """
+                ).fetchall()
         except sqlite3.Error as exc:
             raise SQLiteConnectorError(f"Could not list SQLite tables: {exc}") from exc
         return [str(row[0]) for row in rows]
@@ -56,9 +62,13 @@ class SQLiteConnector:
 
         quoted_name = self._quote_identifier(table_name)
         try:
-            rows = self._connection.execute(
-                f"PRAGMA table_info({quoted_name})"
-            ).fetchall()
+            with self._connection() as connection:
+                rows = connection.execute(
+                    f"PRAGMA table_info({quoted_name})"
+                ).fetchall()
+                foreign_key_rows = connection.execute(
+                    f"PRAGMA foreign_key_list({quoted_name})"
+                ).fetchall()
         except sqlite3.Error as exc:
             raise SQLiteConnectorError(
                 f"Could not describe SQLite table {table_name!r}: {exc}"
@@ -73,14 +83,6 @@ class SQLiteConnector:
             )
             for row in rows
         ]
-        try:
-            foreign_key_rows = self._connection.execute(
-                f"PRAGMA foreign_key_list({quoted_name})"
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise SQLiteConnectorError(
-                f"Could not inspect foreign keys for {table_name!r}: {exc}"
-            ) from exc
         foreign_keys = [
             ForeignKeyReference(
                 column=str(row[3]),
@@ -126,7 +128,8 @@ class SQLiteConnector:
             LIMIT ?
         """
         try:
-            rows = self._connection.execute(sql, [*patterns, limit]).fetchall()
+            with self._connection() as connection:
+                rows = connection.execute(sql, [*patterns, limit]).fetchall()
         except sqlite3.Error as exc:
             raise SQLiteConnectorError(
                 f"Could not sample values from {table_name}.{column_name}: {exc}"
@@ -135,14 +138,15 @@ class SQLiteConnector:
 
     def execute_sql(self, sql: str) -> ExecutionResult:
         try:
-            cursor = self._connection.execute(sql)
-            if cursor.description is None:
-                raise SQLiteConnectorError("SQL did not produce a query result")
-            columns = [str(column[0]) for column in cursor.description]
-            rows = [
-                [self._json_safe(value) for value in row]
-                for row in cursor.fetchall()
-            ]
+            with self._connection() as connection:
+                cursor = connection.execute(sql)
+                if cursor.description is None:
+                    raise SQLiteConnectorError("SQL did not produce a query result")
+                columns = [str(column[0]) for column in cursor.description]
+                rows = [
+                    [self._json_safe(value) for value in row]
+                    for row in cursor.fetchall()
+                ]
         except SQLiteConnectorError:
             raise
         except sqlite3.Error as exc:
@@ -151,13 +155,33 @@ class SQLiteConnector:
         return ExecutionResult(columns=columns, rows=rows, row_count=len(rows))
 
     def close(self) -> None:
-        self._connection.close()
+        self._closed = True
 
     def __enter__(self) -> "SQLiteConnector":
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        if self._closed:
+            raise SQLiteConnectorError("SQLite connector is closed")
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(self._uri, uri=True)
+            connection.execute("PRAGMA query_only = ON")
+        except sqlite3.Error as exc:
+            if connection is not None:
+                connection.close()
+            raise SQLiteConnectorError(
+                f"Could not access SQLite database {self.database_path}: {exc}"
+            ) from exc
+        assert connection is not None
+        try:
+            yield connection
+        finally:
+            connection.close()
 
     @staticmethod
     def _quote_identifier(identifier: str) -> str:

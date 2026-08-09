@@ -1,16 +1,16 @@
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from queryforge.domain.semantic import SemanticContractValidator, SemanticModel
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 class SemanticContractValidatorTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.database = Path(self.directory.name) / "contracts.sqlite"
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.executescript(
                 """
                 CREATE TABLE customers (
@@ -195,7 +195,7 @@ class SemanticContractValidatorTest(unittest.TestCase):
                 ],
             }
         )
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.execute(
                 "UPDATE customers SET email = 'ben@example.test' WHERE customer_id = 2"
             )

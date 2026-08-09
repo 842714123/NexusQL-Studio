@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +7,7 @@ import yaml
 
 from queryforge.domain.semantic import SemanticModel, discover_semantic_model
 from queryforge.domain.semantic.builder import SemanticModelBuilder
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 class SemanticModelBuilderTest(unittest.TestCase):
@@ -15,7 +15,7 @@ class SemanticModelBuilderTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
         self.database = self.root / "analytics.sqlite"
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.executescript(
                 """
                 CREATE TABLE dim_region (
@@ -135,7 +135,7 @@ metrics:
 
     def test_contract_failure_keeps_draft_and_does_not_publish(self) -> None:
         broken = self.root / "broken.sqlite"
-        with sqlite3.connect(broken) as connection:
+        with sqlite_connection(broken) as connection:
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.executescript(
                 """

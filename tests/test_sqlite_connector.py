@@ -8,8 +8,8 @@ from queryforge.infrastructure.db.sqlite_connector import SQLiteConnector, SQLit
 
 class SQLiteConnectorTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.NamedTemporaryFile(suffix=".sqlite")
-        self.database_path = Path(self.temporary.name)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.temporary.name) / "schools.sqlite"
         connection = sqlite3.connect(self.database_path)
         connection.execute(
             "CREATE TABLE schools (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
@@ -19,7 +19,7 @@ class SQLiteConnectorTest(unittest.TestCase):
         connection.close()
 
     def tearDown(self) -> None:
-        self.temporary.close()
+        self.temporary.cleanup()
 
     def test_schema_and_query_result(self) -> None:
         with SQLiteConnector(str(self.database_path)) as connector:
@@ -69,6 +69,22 @@ class SQLiteConnectorTest(unittest.TestCase):
     def test_missing_database_is_clear(self) -> None:
         with self.assertRaisesRegex(SQLiteConnectorError, "does not exist"):
             SQLiteConnector(str(self.database_path) + ".missing")
+
+    def test_operations_do_not_keep_database_file_locked(self) -> None:
+        connector = SQLiteConnector(str(self.database_path))
+        connector.list_tables()
+        connector.describe_table("schools")
+        connector.execute_sql("SELECT name FROM schools")
+
+        moved_path = self.database_path.with_name("moved.sqlite")
+        self.database_path.replace(moved_path)
+        self.database_path = moved_path
+
+    def test_closed_connector_rejects_new_operations(self) -> None:
+        connector = SQLiteConnector(str(self.database_path))
+        connector.close()
+        with self.assertRaisesRegex(SQLiteConnectorError, "closed"):
+            connector.list_tables()
 
 
 if __name__ == "__main__":

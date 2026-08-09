@@ -14,6 +14,7 @@ from queryforge.domain.semantic.schemas import (
     SemanticEntity,
     SemanticModel,
 )
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 class ContractCheck(BaseModel):
@@ -78,7 +79,7 @@ class SemanticContractValidator:
             checked_at=datetime.now(UTC).isoformat(),
         )
         uri = f"{database.as_uri()}?mode=ro"
-        with sqlite3.connect(uri, uri=True) as connection:
+        with sqlite_connection(uri, uri=True) as connection:
             connection.execute("PRAGMA query_only = ON")
             entity_by_name = {entity.name: entity for entity in model.entities}
             for entity in model.entities:

@@ -1,9 +1,10 @@
 import importlib.util
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 SCRIPT = Path("scripts/check_semantic_drift.py").resolve()
@@ -21,7 +22,7 @@ class SemanticDriftTest(unittest.TestCase):
         self.model = self.root / "events.semantic.yml"
         self.baseline = self.root / "semantic_baseline.json"
         self.report = self.root / "semantic_report.json"
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.executescript(
                 """
                 CREATE TABLE fact_event (
@@ -78,7 +79,7 @@ metrics:
 
     def test_schema_drift_is_reported_by_table(self):
         self.update_baseline()
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.execute("ALTER TABLE fact_event ADD COLUMN device TEXT")
         result = drift.run_check(
             self.database,
@@ -108,7 +109,7 @@ metrics:
         self.assertEqual(result["changes"][0]["changed"], ["event_count"])
 
     def test_quality_failure_blocks_baseline_update(self):
-        with sqlite3.connect(self.database) as connection:
+        with sqlite_connection(self.database) as connection:
             connection.execute(
                 "CREATE TABLE bad_event (event_id INTEGER, duration_seconds INTEGER)"
             )

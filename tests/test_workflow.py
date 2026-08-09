@@ -14,8 +14,9 @@ from queryforge.core.schemas.models import Context, NodeResult, SqlTask
 
 class WorkflowTest(unittest.TestCase):
     def test_full_workflow_reaches_output_with_fake_llm(self) -> None:
-        temporary = tempfile.NamedTemporaryFile(suffix=".sqlite")
-        database_path = Path(temporary.name)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        database_path = Path(temporary.name) / "workflow.sqlite"
         connection = sqlite3.connect(database_path)
         connection.execute("CREATE TABLE schools (name TEXT, phone TEXT)")
         connection.execute("INSERT INTO schools VALUES ('Example School', '555-0100')")
@@ -61,11 +62,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(output["rows"], [["555-0100"]])
         self.assertEqual(output["row_count"], 1)
         self.assertNotIn("semantic_model", output)
-        temporary.close()
 
     def test_plan_mode_auto_approval_completes_workflow(self) -> None:
-        temporary = tempfile.NamedTemporaryFile(suffix=".sqlite")
-        database_path = Path(temporary.name)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        database_path = Path(temporary.name) / "plan-mode.sqlite"
         connection = sqlite3.connect(database_path)
         connection.execute("CREATE TABLE events (id INTEGER, happened_on TEXT)")
         connection.execute("INSERT INTO events VALUES (1, '2025-05-15')")
@@ -109,7 +110,6 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(output["rows"], [[1]])
         self.assertTrue(output["plan"]["approved"])
         self.assertEqual(output["date_context"]["ranges"][0]["start_date"], "2025-05-15")
-        temporary.close()
 
     def test_workflow_stops_after_failed_node(self) -> None:
         calls: list[str] = []

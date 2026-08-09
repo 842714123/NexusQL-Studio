@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +11,7 @@ from queryforge.data_assets import (
 )
 from queryforge.domain.semantic import SemanticModelLoader
 from queryforge.infrastructure.db.sqlite_connector import SQLiteConnector
+from queryforge.infrastructure.db.connection import sqlite_connection
 
 
 class _JsonResponse:
@@ -118,14 +118,14 @@ class DataAssetBuilderTest(unittest.TestCase):
         self.assertEqual(result.watermark_after, "2024-01-04")
         self.assertEqual(result.semantic_model_path, str(semantic_path.resolve()))
 
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             self.assertEqual(
                 connection.execute(
                     "SELECT event_id, anime_title, watch_seconds FROM fact_watch_events ORDER BY event_id"
                 ).fetchall(),
                 [(1, "Azure Voyager", 10.5), (3, "Crimson Horizon", 13)],
             )
-        with sqlite3.connect(builder.metadata_database) as connection:
+        with sqlite_connection(builder.metadata_database) as connection:
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM asset_quarantine").fetchone()[0],
                 2,
@@ -160,7 +160,7 @@ class DataAssetBuilderTest(unittest.TestCase):
         self.assertEqual(incremental.published_rows, 1)
         self.assertEqual(incremental.watermark_before, "2024-01-04")
         self.assertEqual(incremental.watermark_after, "2024-01-05")
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM fact_watch_events").fetchone()[0],
                 3,
@@ -259,7 +259,7 @@ class DataAssetBuilderTest(unittest.TestCase):
         self.assertIn("contract validation", result.error or "")
         self.assertFalse(semantic_path.exists())
         self.assertFalse(semantic_path.with_suffix(".pending.yml").exists())
-        with sqlite3.connect(builder.metadata_database) as connection:
+        with sqlite_connection(builder.metadata_database) as connection:
             passed, report_json = connection.execute(
                 "SELECT passed, report_json FROM semantic_contract_reports"
             ).fetchone()
@@ -341,7 +341,7 @@ class DataAssetBuilderTest(unittest.TestCase):
         self.assertNotIn("viewer_email", asset["semantic"]["dimensions"])
 
     def test_semantic_failure_rolls_back_an_existing_publication(self):
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             connection.execute("CREATE TABLE stable_data (id INTEGER)")
             connection.execute("INSERT INTO stable_data VALUES (1)")
         config = AssetBuildConfig.model_validate(
@@ -386,7 +386,7 @@ class DataAssetBuilderTest(unittest.TestCase):
             self.publish_database, self.state_root
         ).build_all(config)
         self.assertEqual(result.status, "failed")
-        with sqlite3.connect(self.publish_database) as connection:
+        with sqlite_connection(self.publish_database) as connection:
             self.assertEqual(
                 connection.execute("SELECT * FROM stable_data").fetchall(),
                 [(1,)],
