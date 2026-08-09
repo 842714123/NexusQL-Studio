@@ -50,10 +50,10 @@ resource handling:
 ### Attribution and licensing
 
 The original design and code are attributed to the upstream project and its
-contributors. The upstream repository did not include a license when this
-derivative was prepared. This repository is therefore kept private for study
-and evaluation. Obtain permission from the upstream copyright holder before
-public redistribution or commercial use.
+contributors. This derivative is maintained and published with permission from
+the upstream author. The upstream repository did not include a license when
+this edition was prepared, so third parties should still confirm reuse terms
+with the upstream copyright holder before redistribution or commercial use.
 
 ## Product Tour
 
