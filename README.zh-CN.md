@@ -432,6 +432,7 @@ CI 会在 Python 3.11 和 3.12 上执行离线验收。
 
 | 主题 | 文档 |
 | --- | --- |
+| **完整学习入口** | **[NexusQL 超详细项目讲解与面试手册](docs/nexusql_complete_guide_zh.md)** |
 | 系统架构 | [Agent Team 架构](docs/agent_team_architecture.md) |
 | 配置 | [配置参考](docs/configuration.md) |
 | Studio | [可视化工作台与语义数据接入](docs/studio.md) |

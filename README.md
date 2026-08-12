@@ -460,6 +460,7 @@ CI runs the offline acceptance gate on Python 3.11 and 3.12.
 
 | Topic | Guide |
 | --- | --- |
+| Complete Chinese guide | [NexusQL deep-dive and interview handbook](docs/nexusql_complete_guide_zh.md) |
 | Architecture | [Agent team architecture](docs/agent_team_architecture.md) |
 | Configuration | [Configuration reference](docs/configuration.md) |
 | Studio | [Visual workspace and semantic onboarding](docs/studio.md) |

@@ -23,6 +23,7 @@
 
 ## Career Preparation (Chinese)
 
+- [NexusQL complete project and interview guide](nexusql_complete_guide_zh.md)
 - [Resume descriptions and improvement roadmap](career_resume_zh.md)
 - [Project interview guide and answer bank](interview_guide_zh.md)
 - [Step-by-step demonstration playbook](demo_playbook_zh.md)
