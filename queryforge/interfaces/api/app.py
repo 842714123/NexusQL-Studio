@@ -9,13 +9,17 @@ from queryforge import __version__
 from queryforge.interfaces.api.schemas import AskRequest, GatewayWebhookRequest
 from queryforge.interfaces.gateway import GatewayAdapter
 from queryforge.application import AgentService
+from queryforge.application.pipeline_runtime import PipelineRuntime
 
 
 class APIUnavailableError(RuntimeError):
     pass
 
 
-def create_app(service: AgentService | None = None):
+def create_app(
+    service: AgentService | None = None,
+    pipeline_runtime: PipelineRuntime | None = None,
+):
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.responses import FileResponse, StreamingResponse
@@ -26,9 +30,10 @@ def create_app(service: AgentService | None = None):
         ) from exc
 
     agent_service = service or AgentService()
+    asset_pipeline = pipeline_runtime or PipelineRuntime()
     gateway = GatewayAdapter(agent_service)
     app = FastAPI(
-        title="QueryForge API",
+        title="NexusQL API",
         version=__version__,
         description="Thin REST/Gateway transports over the shared AgentService.",
     )
@@ -52,6 +57,14 @@ def create_app(service: AgentService | None = None):
     @app.get("/skills")
     def skills():
         return call(agent_service.list_skills)
+
+    @app.get("/engineering/pipeline/status")
+    def pipeline_status():
+        return call(asset_pipeline.status)
+
+    @app.post("/engineering/pipeline/run")
+    def pipeline_run(scenario: str = "standard"):
+        return call(lambda: asset_pipeline.run(scenario=scenario))
 
     @app.post("/ask")
     def ask(request: AskRequest):

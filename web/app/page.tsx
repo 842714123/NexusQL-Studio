@@ -2,16 +2,29 @@
 
 import {
   ChangeEvent,
+  createContext,
   FormEvent,
+  useCallback,
   useEffect,
+  useContext,
   useMemo,
   useRef,
   useState,
 } from "react";
 
-type View = "domains" | "overview" | "sources" | "semantic" | "ask" | "runs";
+type View = "domains" | "overview" | "sources" | "pipelines" | "semantic" | "ask" | "runs";
 type ConnectionState = "checking" | "live" | "demo";
 type SemanticTab = "graph" | "metrics" | "paths";
+type Language = "en" | "zh";
+
+const LanguageContext = createContext({
+  language: "en" as Language,
+  text: (english: string, chinese: string) => english || chinese,
+});
+
+function useLanguage() {
+  return useContext(LanguageContext);
+}
 
 type Entity = {
   name: string;
@@ -95,6 +108,48 @@ type SemanticDraft = {
   }>;
 };
 
+type PipelineRun = {
+  run_id: string;
+  input_rows: number;
+  staged_rows: number;
+  published_rows: number;
+  quarantined_rows: number;
+  watermark_before: string | null;
+  watermark_after: string | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+  quarantine: Array<{
+    reason: string;
+    record: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+
+type PipelineStatus = {
+  name: string;
+  source_rows: number;
+  source_bytes: number;
+  completed_runs: number;
+  failed_runs: number;
+  watermark: { value: string; updated_at: string } | null;
+  last_run: PipelineRun | null;
+  quality: {
+    passed: boolean;
+    checks_passed: number;
+    checks_total: number;
+    quarantined_rows: number;
+    failures: string[];
+  };
+  lineage: {
+    source: string;
+    staging: string;
+    target: string;
+    semantic_model: string;
+  };
+  recent_runs: PipelineRun[];
+};
+
 const SAMPLE_DOMAIN_ID = "domain_anime_streaming";
 
 const INITIAL_SEMANTIC_DRAFT: SemanticDraft = {
@@ -123,16 +178,17 @@ const INITIAL_SEMANTIC_DRAFT: SemanticDraft = {
 
 const NAV_ITEMS: Array<{
   id: View;
-  label: string;
-  caption: string;
+  label: Record<Language, string>;
+  caption: Record<Language, string>;
   icon: string;
 }> = [
-  { id: "domains", label: "Data Domains", caption: "Create & switch context", icon: "◎" },
-  { id: "overview", label: "Overview", caption: "Workspace health", icon: "◇" },
-  { id: "sources", label: "Data Sources", caption: "Ingest & profile", icon: "▦" },
-  { id: "semantic", label: "Semantic Studio", caption: "Model & govern", icon: "⌘" },
-  { id: "ask", label: "Ask & Analyze", caption: "Query with evidence", icon: "✦" },
-  { id: "runs", label: "Run History", caption: "Trace every decision", icon: "↺" },
+  { id: "domains", label: { en: "Data Domains", zh: "数据域" }, caption: { en: "Create & switch context", zh: "创建与切换业务上下文" }, icon: "◎" },
+  { id: "overview", label: { en: "Overview", zh: "总览" }, caption: { en: "Workspace health", zh: "工作区健康状态" }, icon: "◇" },
+  { id: "sources", label: { en: "Data Sources", zh: "数据源" }, caption: { en: "Ingest & profile", zh: "接入、剖析与发布" }, icon: "▦" },
+  { id: "pipelines", label: { en: "Data Pipelines", zh: "数据管道" }, caption: { en: "Build & observe", zh: "构建与可观测性" }, icon: "⇢" },
+  { id: "semantic", label: { en: "Semantic Studio", zh: "语义工作台" }, caption: { en: "Model & govern", zh: "建模与治理" }, icon: "⌘" },
+  { id: "ask", label: { en: "Ask & Analyze", zh: "问答分析" }, caption: { en: "Query with evidence", zh: "基于证据查询" }, icon: "✦" },
+  { id: "runs", label: { en: "Run History", zh: "运行历史" }, caption: { en: "Trace every decision", zh: "追踪每次决策" }, icon: "↺" },
 ];
 
 const INITIAL_DOMAINS: DataDomain[] = [
@@ -598,6 +654,91 @@ const EXAMPLE_QUESTIONS = [
   "Which anime drive both engagement and merch GMV?",
 ];
 
+const CHINESE_UI_VALUES: Record<string, string> = {
+  "Compare watch hours and completion rate by genre": "按类型比较观看时长和完播率",
+  "Which studios generate the most ad revenue?": "哪些工作室带来的广告收入最高？",
+  "Show subscription revenue by plan tier and month": "按套餐等级和月份展示订阅收入",
+  "Which anime drive both engagement and merch GMV?": "哪些动漫同时带来较高参与度和周边商品 GMV？",
+  "Which anime generated the most watch hours?": "哪些动漫贡献的观看时长最高？",
+  "Top anime by merchandise GMV this quarter": "本季度周边商品 GMV 最高的动漫",
+  "Show every user email with subscription revenue": "展示每位用户的邮箱及订阅收入",
+  "Monthly active subscribers by plan tier": "按套餐等级统计月活跃订阅用户",
+  "Which studios have the highest average rating?": "哪些工作室的平均评分最高？",
+  "Fantasy leads total watch hours, while Mystery shows the strongest completion rate. The query uses the governed Watch → Episode → Anime join path and excludes invalid sessions.":
+    "奇幻类的总观看时长最高，悬疑类的完播率最高。查询使用经过治理的“观看会话 → 剧集 → 动漫”关联路径，并排除了无效会话。",
+  Studio: "工作室",
+  Anime: "动漫",
+  Genre: "类型",
+  "Anime Genre": "动漫类型关联",
+  Episode: "剧集",
+  "Watch Session": "观看会话",
+  "Ad Impression": "广告曝光",
+  User: "用户",
+  Rating: "评分",
+  Subscription: "订阅",
+  "User Follow": "用户关注",
+  "Merch Product": "周边商品",
+  "Merch Order": "周边订单",
+  "Order Item": "订单明细",
+  Calendar: "日期",
+  Watch: "观看会话",
+  "Ad impression": "广告曝光",
+  "Merch product": "周边商品",
+  "Merch order": "周边订单",
+  "Release date": "发布日期",
+  Date: "日期",
+  "Watch hours": "观看时长",
+  "Completion rate": "完播率",
+  "Unique viewers": "独立观看用户",
+  "Average rating": "平均评分",
+  "Subscription revenue": "订阅收入",
+  "Active subscribers": "活跃订阅用户",
+  "Ad revenue": "广告收入",
+  "Ad CTR": "广告点击率",
+  "Merch GMV": "周边商品 GMV",
+  "Merch units": "周边商品销量",
+  "Community follows": "社区关注数",
+  "Total valid viewing time, normalized to hours.": "有效观看总时长，统一换算为小时。",
+  "Share of valid watch sessions completed.": "有效观看会话中的完播比例。",
+  "Distinct viewers with a valid watch session.": "存在有效观看会话的去重用户数。",
+  "Average submitted anime rating.": "用户提交的动漫平均评分。",
+  "Recognized subscription revenue in USD.": "以美元计价的已确认订阅收入。",
+  "Distinct users represented by active subscriptions.": "有效订阅对应的去重用户数。",
+  "Revenue attributed to governed ad impressions.": "归因到受治理广告曝光的收入。",
+  "Click-through rate across eligible impressions.": "符合条件的广告曝光点击率。",
+  "Net merchandise value in USD.": "以美元计价的周边商品净交易额。",
+  "Total merchandise units purchased.": "已购买的周边商品总件数。",
+  "Distinct user-follow relationships created.": "新增的去重用户关注关系数。",
+  "Watch → Anime": "观看会话 → 动漫",
+  "Watch → Studio": "观看会话 → 工作室",
+  "Watch → Release date": "观看会话 → 发布日期",
+  "Order item → Anime": "订单明细 → 动漫",
+  "Order item → User": "订单明细 → 用户",
+  "Order item → Date": "订单明细 → 日期",
+  "Ad → Studio": "广告曝光 → 工作室",
+  Safe: "安全",
+  Fantasy: "奇幻",
+  Action: "动作",
+  "Sci-Fi": "科幻",
+  Romance: "恋爱",
+  Mystery: "悬疑",
+  Comedy: "喜剧",
+  genre: "类型",
+  watch_hours: "观看时长",
+  completion_rate: "完播率",
+  "just now": "刚刚",
+  "2 min ago": "2 分钟前",
+  "18 min ago": "18 分钟前",
+  "42 min ago": "42 分钟前",
+  "1 hr ago": "1 小时前",
+  "3 hr ago": "3 小时前",
+  saved: "已保存",
+};
+
+function localizeUiValue(value: string, language: Language) {
+  return language === "zh" ? CHINESE_UI_VALUES[value] ?? value : value;
+}
+
 const sleep = (duration: number) =>
   new Promise((resolve) => window.setTimeout(resolve, duration));
 
@@ -639,6 +780,7 @@ function normalizeQueryResult(payload: Record<string, unknown>): QueryResult {
 }
 
 export default function Home() {
+  const [language, setLanguage] = useState<Language>("en");
   const [activeView, setActiveView] = useState<View>("domains");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [connection, setConnection] =
@@ -671,6 +813,27 @@ export default function Home() {
     "All",
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const text = useCallback(
+    (english: string, chinese: string) =>
+      language === "zh" ? chinese : english,
+    [language],
+  );
+
+  useEffect(() => {
+    const savedLanguage = window.localStorage.getItem("nexusql-language");
+    if (savedLanguage === "en" || savedLanguage === "zh") {
+      document.documentElement.lang = savedLanguage === "zh" ? "zh-CN" : "en";
+      const timer = window.setTimeout(() => setLanguage(savedLanguage), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, []);
+
+  function toggleLanguage() {
+    const nextLanguage = language === "en" ? "zh" : "en";
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("nexusql-language", nextLanguage);
+    document.documentElement.lang = nextLanguage === "zh" ? "zh-CN" : "en";
+  }
 
   const activeDomain =
     domains.find((domain) => domain.id === activeDomainId) ??
@@ -822,8 +985,8 @@ export default function Home() {
       setActiveView("ask");
       setToast(
         activeDomainSources.length
-          ? "Publish an executable connector for this domain before running analysis."
-          : "Upload data and publish its semantic contract before running analysis.",
+          ? text("Publish an executable connector for this domain before running analysis.", "请先为当前数据域发布可执行连接器，再运行分析。")
+          : text("Upload data and publish its semantic contract before running analysis.", "请先上传数据并发布语义契约，再运行分析。"),
       );
       return;
     }
@@ -862,7 +1025,7 @@ export default function Home() {
         nextResult = normalizeQueryResult(await response.json());
       } catch {
         setConnection("demo");
-        setToast("Live backend unavailable — continued with demo evidence.");
+        setToast(text("Live backend unavailable — continued with demo evidence.", "实时后端不可用，已切换为演示证据。"));
       }
     } else {
       await sleep(460);
@@ -898,7 +1061,7 @@ export default function Home() {
       }),
     }).catch(() => undefined);
     setIsRunning(false);
-    setToast("Governed query completed.");
+    setToast(text("Governed query completed.", "受治理查询已完成。"));
   }
 
   function submitQuery(event: FormEvent) {
@@ -908,7 +1071,7 @@ export default function Home() {
 
   function copySql() {
     void navigator.clipboard.writeText(result.sql);
-    setToast("SQL copied to clipboard.");
+    setToast(text("SQL copied to clipboard.", "SQL 已复制到剪贴板。"));
   }
 
   function downloadResult() {
@@ -931,7 +1094,7 @@ export default function Home() {
     anchor.download = `${result.runId}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setToast("Run artifact downloaded.");
+    setToast(text("Run artifact downloaded.", "运行产物已下载。"));
   }
 
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -972,12 +1135,12 @@ export default function Home() {
       );
     if (requiredFields.some((value) => !value.trim()) || !metricsValid) {
       setSemanticValidated(false);
-      setToast("Complete the entity, grain, owner, and metric contract first.");
+      setToast(text("Complete the entity, grain, owner, and metric contract first.", "请先完善实体、粒度、负责人和指标契约。"));
       return;
     }
     await sleep(500);
     setSemanticValidated(true);
-    setToast("Semantic contract passed all blocking checks.");
+    setToast(text("Semantic contract passed all blocking checks.", "语义契约已通过全部阻断性检查。"));
   }
 
   async function publishUpload() {
@@ -1044,8 +1207,8 @@ export default function Home() {
     setSemanticValidated(false);
     setToast(
       persisted
-        ? "Data and semantic model published atomically."
-        : "Demo source published locally with its semantic contract.",
+        ? text("Data and semantic model published atomically.", "数据与语义模型已原子发布。")
+        : text("Demo source published locally with its semantic contract.", "演示数据源及其语义契约已在本地发布。"),
     );
   }
 
@@ -1107,25 +1270,26 @@ export default function Home() {
   }
 
   return (
+    <LanguageContext.Provider value={{ language, text }}>
     <div className="studio-shell">
       <aside className={cn("sidebar", mobileMenuOpen && "sidebar-open")}>
         <div className="brand-block">
           <button
             className="brand-mark"
             onClick={() => setActiveView("overview")}
-            aria-label="QueryForge home"
+            aria-label={text("NexusQL home", "NexusQL 首页")}
           >
-            QF
+            NQ
           </button>
           <div>
-            <div className="brand-name">QueryForge</div>
-            <div className="brand-caption">Semantic AI workspace</div>
+            <div className="brand-name">NexusQL</div>
+            <div className="brand-caption">{text("Governed data intelligence", "可治理数据智能工作台")}</div>
           </div>
           <span className="beta-badge">BETA</span>
         </div>
 
-        <div className="sidebar-section-label">Workspace</div>
-        <nav className="primary-nav" aria-label="Primary navigation">
+        <div className="sidebar-section-label">{text("Workspace", "工作区")}</div>
+        <nav className="primary-nav" aria-label={text("Primary navigation", "主导航")}>
           {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
@@ -1138,8 +1302,8 @@ export default function Home() {
             >
               <Icon value={item.icon} />
               <span>
-                <strong>{item.label}</strong>
-                <small>{item.caption}</small>
+                <strong>{item.label[language]}</strong>
+                <small>{item.caption[language]}</small>
               </span>
               {item.id === "semantic" && (
                 <span className="nav-health" aria-label="healthy" />
@@ -1161,12 +1325,12 @@ export default function Home() {
             </span>
             <div>
               <strong>{activeDomain.name}</strong>
-              <span>{activeDomain.isSample ? "Sample data domain" : "Workspace data domain"}</span>
+              <span>{activeDomain.isSample ? text("Sample data domain", "示例数据域") : text("Workspace data domain", "工作区数据域")}</span>
             </div>
           </div>
           <div className="workspace-progress-row">
-            <span>Semantic coverage</span>
-            <strong>{activeDomain.isSample ? "100%" : activeDomain.sourceCount ? "Draft" : "0%"}</strong>
+            <span>{text("Semantic coverage", "语义覆盖率")}</span>
+            <strong>{activeDomain.isSample ? "100%" : activeDomain.sourceCount ? text("Draft", "草稿") : "0%"}</strong>
           </div>
           <div className="workspace-progress">
             <span
@@ -1184,8 +1348,8 @@ export default function Home() {
         <button className="profile-row" onClick={() => setSettingsOpen(true)}>
           <span className="profile-avatar">HC</span>
           <span>
-            <strong>Workspace admin</strong>
-            <small>Local-first mode</small>
+            <strong>{text("Workspace admin", "工作区管理员")}</strong>
+            <small>{text("Local-first mode", "本地优先模式")}</small>
           </span>
           <Icon value="···" />
         </button>
@@ -1203,19 +1367,28 @@ export default function Home() {
         <header className="topbar">
           <button
             className="mobile-menu-button"
-            aria-label="Open navigation"
+            aria-label={text("Open navigation", "打开导航")}
             onClick={() => setMobileMenuOpen(true)}
           >
             ☰
           </button>
           <div className="breadcrumb">
-            <span>Workspace</span>
+            <span>{text("Workspace", "工作区")}</span>
             <b>/</b>
             <strong>
-              {NAV_ITEMS.find((item) => item.id === activeView)?.label}
+              {NAV_ITEMS.find((item) => item.id === activeView)?.label[language]}
             </strong>
           </div>
           <div className="topbar-actions">
+            <button
+              className="language-toggle"
+              onClick={toggleLanguage}
+              aria-label={text("Switch interface to Chinese", "将界面切换为英文")}
+              title={text("切换到中文", "Switch to English")}
+            >
+              <span>{language === "en" ? "中" : "EN"}</span>
+              <strong>{language === "en" ? "中文" : "English"}</strong>
+            </button>
             <button
               className={cn(
                 "connection-chip",
@@ -1225,10 +1398,10 @@ export default function Home() {
             >
               <span className="connection-dot" />
               {connection === "checking"
-                ? "Checking API"
+                ? text("Checking API", "正在检查 API")
                 : connection === "live"
-                  ? "Live backend"
-                  : "Interactive demo"}
+                  ? text("Live backend", "后端已连接")
+                  : text("Interactive demo", "交互演示模式")}
             </button>
             <button
               className="dataset-switcher"
@@ -1238,7 +1411,7 @@ export default function Home() {
             >
               <span className="dataset-icon">A</span>
               <span>
-                <small>Active data domain</small>
+                <small>{text("Active data domain", "当前数据域")}</small>
                 <strong>{activeDomain.name}</strong>
               </span>
               <span className="chevron">⌄</span>
@@ -1246,14 +1419,14 @@ export default function Home() {
             {domainMenuOpen && (
               <div className="domain-switcher-menu" role="menu">
                 <div className="domain-switcher-heading">
-                  <span>Switch data domain</span>
+                  <span>{text("Switch data domain", "切换数据域")}</span>
                   <button
                     onClick={() => {
                       setDomainMenuOpen(false);
                       setCreateDomainOpen(true);
                     }}
                   >
-                    ＋ New
+                    ＋ {text("New", "新建")}
                   </button>
                 </div>
                 {domains.map((domain) => (
@@ -1272,8 +1445,7 @@ export default function Home() {
                     <span>
                       <strong>{domain.name}</strong>
                       <small>
-                        {domain.sourceCount} source
-                        {domain.sourceCount === 1 ? "" : "s"} · {domain.status}
+                        {domain.sourceCount} {text(domain.sourceCount === 1 ? "source" : "sources", "个数据源")} · {domain.status === "ready" ? text("ready", "就绪") : text("draft", "草稿")}
                       </small>
                     </span>
                     {domain.id === activeDomain.id && <em>✓</em>}
@@ -1286,13 +1458,13 @@ export default function Home() {
                     setActiveView("domains");
                   }}
                 >
-                  Manage all data domains →
+                  {text("Manage all data domains →", "管理全部数据域 →")}
                 </button>
               </div>
             )}
             <button
               className="icon-button"
-              aria-label="Open settings"
+              aria-label={text("Open settings", "打开设置")}
               onClick={() => setSettingsOpen(true)}
             >
               ⚙
@@ -1335,6 +1507,13 @@ export default function Home() {
               uploadedSources={activeDomainSources}
               openUpload={() => setUploadOpen(true)}
               openSemantic={() => setActiveView("semantic")}
+            />
+          )}
+          {activeView === "pipelines" && (
+            <PipelinesView
+              domain={activeDomain}
+              hasSources={activeDomain.isSample || activeDomainSources.length > 0}
+              openSources={() => setActiveView("sources")}
             />
           )}
           {activeView === "semantic" && (
@@ -1429,6 +1608,7 @@ export default function Home() {
         </div>
       )}
     </div>
+    </LanguageContext.Provider>
   );
 }
 
@@ -1445,34 +1625,34 @@ function DomainsView({
   selectDomain: (domain: DataDomain, view?: View) => void;
   createDomain: () => void;
 }) {
+  const { text } = useLanguage();
   return (
     <div className="page domains-page">
       <PageHeader
-        eyebrow="GOVERNED CONTEXT"
-        title="Data Domains"
-        description="Create isolated business contexts, then add each domain’s sources, semantic definitions, policies, and analytical history."
+        eyebrow={text("GOVERNED CONTEXT", "受治理的业务上下文")}
+        title={text("Data Domains", "数据域")}
+        description={text("Create isolated business contexts, then add each domain’s sources, semantic definitions, policies, and analytical history.", "创建相互隔离的业务上下文，并分别管理每个数据域的数据源、语义定义、治理策略和分析历史。")}
         action={
           <button className="primary-button" onClick={createDomain}>
-            <span>＋</span> New data domain
+            <span>＋</span> {text("New data domain", "新建数据域")}
           </button>
         }
       />
 
       <section className="domain-hero panel">
         <div>
-          <span className="panel-kicker">DOMAIN-FIRST WORKFLOW</span>
-          <h2>One platform. Many governed business contexts.</h2>
+          <span className="panel-kicker">{text("DOMAIN-FIRST WORKFLOW", "数据域优先工作流")}</span>
+          <h2>{text("One platform. Many governed business contexts.", "一个平台，承载多个受治理的业务场景。")}</h2>
           <p>
-            Every upload, entity, metric, Join Path, contract, and run belongs
-            to the selected data domain. Context never leaks across domains.
+            {text("Every upload, entity, metric, Join Path, contract, and run belongs to the selected data domain. Context never leaks across domains.", "每次上传、每个实体、指标、Join Path、契约和运行记录都归属于选中的数据域，业务上下文不会跨域泄漏。")}
           </p>
         </div>
-        <div className="domain-flow" aria-label="Data domain workflow">
+        <div className="domain-flow" aria-label={text("Data domain workflow", "数据域工作流")}>
           {[
-            ["01", "Create domain"],
-            ["02", "Add sources"],
-            ["03", "Review semantics"],
-            ["04", "Ask with evidence"],
+            ["01", text("Create domain", "创建数据域")],
+            ["02", text("Add sources", "添加数据源")],
+            ["03", text("Review semantics", "评审语义")],
+            ["04", text("Ask with evidence", "基于证据问答")],
           ].map(([index, label], itemIndex) => (
             <span key={label}>
               <i>{index}</i>
@@ -1505,10 +1685,10 @@ function DomainsView({
                 <div>
                   <div className="domain-card-labels">
                     {domain.id === activeDomainId && (
-                      <span className="status-pill success">ACTIVE</span>
+                      <span className="status-pill success">{text("ACTIVE", "当前")}</span>
                     )}
                     {domain.isSample && (
-                      <span className="status-pill neutral">SAMPLE</span>
+                      <span className="status-pill neutral">{text("SAMPLE", "示例")}</span>
                     )}
                   </div>
                   <h2>{domain.name}</h2>
@@ -1519,24 +1699,24 @@ function DomainsView({
               <div className="domain-card-stats">
                 <span>
                   <strong>{sourceCount}</strong>
-                  <small>Sources</small>
+                  <small>{text("Sources", "数据源")}</small>
                 </span>
                 <span>
                   <strong>{domain.isSample ? 15 : sourceCount ? 1 : 0}</strong>
-                  <small>Entities</small>
+                  <small>{text("Entities", "实体")}</small>
                 </span>
                 <span>
                   <strong>{domain.isSample ? 11 : 0}</strong>
-                  <small>Metrics</small>
+                  <small>{text("Metrics", "指标")}</small>
                 </span>
                 <span>
-                  <strong>{domain.isSample ? "82/82" : sourceCount ? "Draft" : "—"}</strong>
-                  <small>Contract</small>
+                  <strong>{domain.isSample ? "82/82" : sourceCount ? text("Draft", "草稿") : "—"}</strong>
+                  <small>{text("Contract", "契约")}</small>
                 </span>
               </div>
               <footer>
                 <span>
-                  Owner <strong>{domain.owner}</strong>
+                  {text("Owner", "负责人")} <strong>{domain.owner}</strong>
                 </span>
                 <button
                   className={
@@ -1547,8 +1727,8 @@ function DomainsView({
                   onClick={() => selectDomain(domain)}
                 >
                   {domain.id === activeDomainId
-                    ? "Open active domain →"
-                    : "Select domain →"}
+                    ? text("Open active domain →", "打开当前数据域 →")
+                    : text("Select domain →", "选择数据域 →")}
                 </button>
               </footer>
             </article>
@@ -1557,8 +1737,8 @@ function DomainsView({
 
         <button className="domain-create-card" onClick={createDomain}>
           <span>＋</span>
-          <strong>Create another data domain</strong>
-          <p>Start with a clean semantic and governance boundary.</p>
+          <strong>{text("Create another data domain", "创建另一个数据域")}</strong>
+          <p>{text("Start with a clean semantic and governance boundary.", "从清晰、隔离的语义与治理边界开始。")}</p>
         </button>
       </div>
     </div>
@@ -1586,6 +1766,7 @@ function OverviewView({
   connection: ConnectionState;
   runs: RunRecord[];
 }) {
+  const { text } = useLanguage();
   if (!domain.isSample) {
     return (
       <div className="page page-overview">
@@ -1593,33 +1774,31 @@ function OverviewView({
           <div className="hero-copy">
             <div className="eyebrow">
               <span className="pulse-dot" />
-              ACTIVE DATA DOMAIN
+              {text("ACTIVE DATA DOMAIN", "当前数据域")}
             </div>
             <h1>
               {domain.name}
-              <span>Build its trusted analytical language.</span>
+              <span>{text("Build its trusted analytical language.", "构建可信的业务分析语言。")}</span>
             </h1>
             <p>
-              This domain is isolated from every other business context.
-              Complete the source and semantic contract steps to activate
-              governed analysis.
+              {text("This domain is isolated from every other business context. Complete the source and semantic contract steps to activate governed analysis.", "此数据域与其他业务上下文完全隔离。完成数据源接入与语义契约，即可启用受治理分析。")}
             </p>
             <div className="onboarding-actions">
               <button className="primary-button" onClick={openSources}>
-                Add domain data →
+                {text("Add domain data →", "添加域内数据 →")}
               </button>
               <button className="secondary-button" onClick={openSemantic}>
-                Open semantic studio
+                {text("Open semantic studio", "打开语义工作台")}
               </button>
             </div>
           </div>
           <div className="domain-readiness">
-            <span className="panel-kicker">ACTIVATION PATH</span>
+            <span className="panel-kicker">{text("ACTIVATION PATH", "启用路径")}</span>
             {[
-              ["Data domain created", true],
-              ["Source profiled", domain.sourceCount > 0],
-              ["Semantic contract reviewed", false],
-              ["Execution connector ready", false],
+              [text("Data domain created", "数据域已创建"), true],
+              [text("Source profiled", "数据源已剖析"), domain.sourceCount > 0],
+              [text("Semantic contract reviewed", "语义契约已评审"), false],
+              [text("Execution connector ready", "执行连接器已就绪"), false],
             ].map(([label, complete], index) => (
               <div key={String(label)} className={cn(complete && "complete")}>
                 <span>{complete ? "✓" : index + 1}</span>
@@ -1628,36 +1807,36 @@ function OverviewView({
             ))}
           </div>
         </section>
-        <section className="metric-grid" aria-label="Domain metrics">
+        <section className="metric-grid" aria-label={text("Domain metrics", "数据域指标")}>
           <MetricCard
-            label="Connected sources"
+            label={text("Connected sources", "已连接数据源")}
             value={String(domain.sourceCount)}
-            detail="Scoped to this domain"
-            trend={domain.sourceCount ? "Profiled" : "Action required"}
+            detail={text("Scoped to this domain", "仅限当前数据域")}
+            trend={domain.sourceCount ? text("Profiled", "已剖析") : text("Action required", "需要处理")}
             icon="▦"
             onClick={openSources}
           />
           <MetricCard
-            label="Semantic entities"
-            value={domain.sourceCount ? "1 draft" : "0"}
-            detail="Human review required"
-            trend="Domain isolated"
+            label={text("Semantic entities", "语义实体")}
+            value={domain.sourceCount ? text("1 draft", "1 个草稿") : "0"}
+            detail={text("Human review required", "需要人工评审")}
+            trend={text("Domain isolated", "数据域已隔离")}
             icon="⌘"
             onClick={openSemantic}
           />
           <MetricCard
-            label="Business metrics"
+            label={text("Business metrics", "业务指标")}
             value="0"
-            detail="Define after profiling"
-            trend="No borrowed meaning"
+            detail={text("Define after profiling", "剖析后定义")}
+            trend={text("No borrowed meaning", "不复用其他域语义")}
             icon="ƒ"
             onClick={openSemantic}
           />
           <MetricCard
-            label="Contract status"
-            value="Draft"
-            detail="Blocking until published"
-            trend="Safe by default"
+            label={text("Contract status", "契约状态")}
+            value={text("Draft", "草稿")}
+            detail={text("Blocking until published", "发布前禁止执行")}
+            trend={text("Safe by default", "默认安全")}
             icon="◇"
             onClick={openSemantic}
           />
@@ -1665,23 +1844,21 @@ function OverviewView({
         <section className="panel domain-empty-panel">
           <span className="domain-card-icon">D</span>
           <div>
-            <span className="panel-kicker">NEXT BEST ACTION</span>
+            <span className="panel-kicker">{text("NEXT BEST ACTION", "下一步建议")}</span>
             <h2>
               {domain.sourceCount
-                ? "Finish the semantic contract"
-                : "Upload the first domain-owned source"}
+                ? text("Finish the semantic contract", "完善语义契约")
+                : text("Upload the first domain-owned source", "上传首个域内数据源")}
             </h2>
             <p>
-              QueryForge will profile physical structure, propose a semantic
-              draft, require an owner review, and publish data plus meaning
-              atomically.
+              {text("NexusQL will profile physical structure, propose a semantic draft, require an owner review, and publish data plus meaning atomically.", "NexusQL 会剖析物理结构、生成语义草稿、要求负责人评审，并以原子方式同时发布数据与业务语义。")}
             </p>
           </div>
           <button
             className="primary-button"
             onClick={domain.sourceCount ? openSemantic : openSources}
           >
-            Continue setup →
+            {text("Continue setup →", "继续配置 →")}
           </button>
         </section>
       </div>
@@ -1694,16 +1871,14 @@ function OverviewView({
         <div className="hero-copy">
           <div className="eyebrow">
             <span className="pulse-dot" />
-            SEMANTIC LAYER ONLINE
+            {text("SEMANTIC LAYER ONLINE", "语义层已上线")}
           </div>
           <h1>
-            Turn this domain into trusted answers.
-            <span>Inspect every decision.</span>
+            {text("Turn this domain into trusted answers.", "让数据域产出可信答案。")}
+            <span>{text("Inspect every decision.", "检查每一次决策。")}</span>
           </h1>
           <p>
-            <strong>{domain.name}</strong> is the selected sample domain.
-            Natural-language analytics stays grounded in its governed metrics,
-            explicit Join Paths, and read-only SQL policy.
+            <strong>{domain.name}</strong>{text(" is the selected sample domain. Natural-language analytics stays grounded in its governed metrics, explicit Join Paths, and read-only SQL policy.", " 是当前示例数据域。自然语言分析严格基于受治理指标、明确的 Join Path 和只读 SQL 策略。")}
           </p>
           <form
             className="hero-query"
@@ -1716,17 +1891,17 @@ function OverviewView({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              aria-label="Ask a data question"
-              placeholder="Ask a question about your data…"
+              aria-label={text("Ask a data question", "输入数据问题")}
+              placeholder={text("Ask a question about your data…", "用自然语言询问你的数据…")}
             />
             <div className="query-shortcut">
               <kbd>⌘</kbd>
               <kbd>↵</kbd>
             </div>
-            <button type="submit">Run query</button>
+            <button type="submit">{text("Run query", "运行查询")}</button>
           </form>
           <div className="hero-suggestions">
-            <span>Try:</span>
+            <span>{text("Try:", "试试：")}</span>
             {EXAMPLE_QUESTIONS.slice(1, 4).map((item) => (
               <button key={item} onClick={() => void runQuery(item)}>
                 {item}
@@ -1739,7 +1914,7 @@ function OverviewView({
           <div className="orbit-ring ring-two" />
           <div className="orbit-core">
             <span>82</span>
-            <small>contracts</small>
+            <small>{text("contracts", "契约")}</small>
           </div>
           <span className="orbit-node node-a">SQL</span>
           <span className="orbit-node node-b">METRIC</span>
@@ -1748,36 +1923,36 @@ function OverviewView({
         </div>
       </section>
 
-      <section className="metric-grid" aria-label="Workspace metrics">
+      <section className="metric-grid" aria-label={text("Workspace metrics", "工作区指标")}>
         <MetricCard
-          label="Queryable records"
+          label={text("Queryable records", "可查询记录")}
           value="370,762"
-          detail="15 governed tables"
-          trend="+100% synthetic"
+          detail={text("15 governed tables", "15 张受治理表")}
+          trend={text("+100% synthetic", "100% 合成数据")}
           icon="▦"
           onClick={openSources}
         />
         <MetricCard
-          label="Semantic entities"
+          label={text("Semantic entities", "语义实体")}
           value="15"
-          detail="30 relationships"
-          trend="7 Join Paths"
+          detail={text("30 relationships", "30 条关系")}
+          trend={text("7 Join Paths", "7 条 Join Path")}
           icon="⌘"
           onClick={openSemantic}
         />
         <MetricCard
-          label="Business metrics"
+          label={text("Business metrics", "业务指标")}
           value="11"
-          detail="6 analytical domains"
-          trend="100% owned"
+          detail={text("6 analytical domains", "6 个分析主题")}
+          trend={text("100% owned", "100% 有负责人")}
           icon="ƒ"
           onClick={openSemantic}
         />
         <MetricCard
-          label="Contract health"
+          label={text("Contract health", "契约健康度")}
           value="82/82"
-          detail="0 blocking failures"
-          trend="No drift"
+          detail={text("0 blocking failures", "0 个阻断项")}
+          trend={text("No drift", "无漂移")}
           icon="✓"
           onClick={openSemantic}
         />
@@ -1787,8 +1962,8 @@ function OverviewView({
         <div className="panel engagement-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">ENGAGEMENT</span>
-              <h2>Watch hours by genre</h2>
+              <span className="panel-kicker">{text("ENGAGEMENT", "用户参与度")}</span>
+              <h2>{text("Watch hours by genre", "各类型观看时长")}</h2>
             </div>
             <div className="segmented small">
               <button className="active">30D</button>
@@ -1798,7 +1973,7 @@ function OverviewView({
           </div>
           <div className="chart-summary">
             <strong>9,570.8</strong>
-            <span>governed watch hours</span>
+            <span>{text("governed watch hours", "受治理观看时长")}</span>
             <em>↗ 12.4%</em>
           </div>
           <div className="area-chart" aria-label="Watch hours trend">
@@ -1824,10 +1999,10 @@ function OverviewView({
           </div>
           <div className="chart-legend">
             <span>
-              <i className="legend-primary" /> Watch hours
+              <i className="legend-primary" /> {text("Watch hours", "观看时长")}
             </span>
             <span>
-              <i className="legend-secondary" /> Completion rate
+              <i className="legend-secondary" /> {text("Completion rate", "完播率")}
             </span>
           </div>
         </div>
@@ -1835,29 +2010,29 @@ function OverviewView({
         <div className="panel contract-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">GOVERNANCE</span>
-              <h2>Semantic contract</h2>
+              <span className="panel-kicker">{text("GOVERNANCE", "数据治理")}</span>
+              <h2>{text("Semantic contract", "语义契约")}</h2>
             </div>
             <button className="text-button" onClick={openSemantic}>
-              Open studio →
+              {text("Open studio →", "打开工作台 →")}
             </button>
           </div>
           <div className="contract-score">
             <div className="score-ring">
               <span>100</span>
-              <small>score</small>
+              <small>{text("score", "评分")}</small>
             </div>
             <div>
-              <strong>Production ready</strong>
-              <p>All blocking semantic and physical checks passed.</p>
+              <strong>{text("Production ready", "生产就绪")}</strong>
+              <p>{text("All blocking semantic and physical checks passed.", "所有阻断性语义与物理检查均已通过。")}</p>
             </div>
           </div>
           <div className="contract-checks">
             {[
-              ["Metric definitions", "11 / 11"],
-              ["Relationship integrity", "30 / 30"],
-              ["Governed Join Paths", "7 / 7"],
-              ["Quality & ownership", "34 / 34"],
+              [text("Metric definitions", "指标定义"), "11 / 11"],
+              [text("Relationship integrity", "关系完整性"), "30 / 30"],
+              [text("Governed Join Paths", "受治理 Join Path"), "7 / 7"],
+              [text("Quality & ownership", "质量与负责人"), "34 / 34"],
             ].map(([label, value]) => (
               <div key={label}>
                 <span className="check-mark">✓</span>
@@ -1867,8 +2042,8 @@ function OverviewView({
             ))}
           </div>
           <div className="contract-footer">
-            <span>Last validated 4 minutes ago</span>
-            <span className="status-pill success">NO DRIFT</span>
+            <span>{text("Last validated 4 minutes ago", "4 分钟前完成验证")}</span>
+            <span className="status-pill success">{text("NO DRIFT", "无漂移")}</span>
           </div>
         </div>
       </section>
@@ -1877,11 +2052,11 @@ function OverviewView({
         <div className="panel recent-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">RECENT ACTIVITY</span>
-              <h2>Governed runs</h2>
+              <span className="panel-kicker">{text("RECENT ACTIVITY", "最近活动")}</span>
+              <h2>{text("Governed runs", "受治理运行")}</h2>
             </div>
             <button className="text-button" onClick={openRuns}>
-              View all →
+              {text("View all →", "查看全部 →")}
             </button>
           </div>
           <div className="activity-list">
@@ -1917,8 +2092,8 @@ function OverviewView({
         <div className="panel platform-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">RUNTIME</span>
-              <h2>Platform health</h2>
+              <span className="panel-kicker">{text("RUNTIME", "运行环境")}</span>
+              <h2>{text("Platform health", "平台健康状态")}</h2>
             </div>
             <span
               className={cn(
@@ -1926,15 +2101,15 @@ function OverviewView({
                 connection === "live" ? "success" : "neutral",
               )}
             >
-              {connection === "live" ? "LIVE" : "DEMO"}
+              {connection === "live" ? text("LIVE", "在线") : text("DEMO", "演示")}
             </span>
           </div>
           <div className="runtime-stack">
             {[
-              ["Semantic layer", "Healthy", "82 checks"],
-              ["SQL policy", "Enforced", "Read-only"],
-              ["Data freshness", "Current", "4 min ago"],
-              ["Model gateway", connection === "live" ? "Connected" : "Demo", "Auto"],
+              [text("Semantic layer", "语义层"), text("Healthy", "健康"), text("82 checks", "82 项检查")],
+              [text("SQL policy", "SQL 策略"), text("Enforced", "已执行"), text("Read-only", "只读")],
+              [text("Data freshness", "数据新鲜度"), text("Current", "当前"), text("4 min ago", "4 分钟前")],
+              [text("Model gateway", "模型网关"), connection === "live" ? text("Connected", "已连接") : text("Demo", "演示"), text("Auto", "自动")],
             ].map(([label, value, detail]) => (
               <div className="runtime-row" key={label}>
                 <span className="runtime-symbol">◆</span>
@@ -1991,15 +2166,16 @@ function SourcesView({
   openUpload: () => void;
   openSemantic: () => void;
 }) {
+  const { text } = useLanguage();
   return (
     <div className="page">
       <PageHeader
-        eyebrow="DATA FOUNDATION"
-        title={`${domain.name} · Data Sources`}
-        description="Sources are isolated inside the active data domain and can publish only with a reviewed semantic contract."
+        eyebrow={text("DATA FOUNDATION", "数据基础")}
+        title={`${domain.name} · ${text("Data Sources", "数据源")}`}
+        description={text("Sources are isolated inside the active data domain and can publish only with a reviewed semantic contract.", "数据源在当前数据域内隔离，只有通过人工评审的语义契约才能发布。")}
         action={
           <button className="primary-button" onClick={openUpload}>
-            <span>＋</span> Add data source
+            <span>＋</span> {text("Add data source", "添加数据源")}
           </button>
         }
       />
@@ -2010,9 +2186,9 @@ function SourcesView({
           <div className="source-card-header">
             <span className="source-logo sqlite">SQL</span>
             <div>
-              <span className="status-pill success">ACTIVE</span>
+              <span className="status-pill success">{text("ACTIVE", "当前")}</span>
               <h3>Anime Streaming</h3>
-              <p>SQLite · synthetic product analytics</p>
+              <p>{text("SQLite · synthetic product analytics", "SQLite · 合成产品分析数据")}</p>
             </div>
             <button className="icon-button" aria-label="Source actions">
               ···
@@ -2020,29 +2196,29 @@ function SourcesView({
           </div>
           <div className="source-stats">
             <div>
-              <span>Tables</span>
+              <span>{text("Tables", "数据表")}</span>
               <strong>15</strong>
             </div>
             <div>
-              <span>Rows</span>
+              <span>{text("Rows", "行数")}</span>
               <strong>370,762</strong>
             </div>
             <div>
-              <span>Size</span>
+              <span>{text("Size", "大小")}</span>
               <strong>33.4 MB</strong>
             </div>
             <div>
-              <span>Last profile</span>
-              <strong>4m ago</strong>
+              <span>{text("Last profile", "最近剖析")}</span>
+              <strong>{text("4m ago", "4 分钟前")}</strong>
             </div>
           </div>
           <div className="source-contract-row">
             <span className="check-mark">✓</span>
             <span>
-              <strong>Semantic model published</strong>
-              <small>15 entities · 11 metrics · 82/82 checks</small>
+              <strong>{text("Semantic model published", "语义模型已发布")}</strong>
+              <small>{text("15 entities · 11 metrics · 82/82 checks", "15 个实体 · 11 个指标 · 82/82 项检查")}</small>
             </span>
-            <button onClick={openSemantic}>Inspect →</button>
+            <button onClick={openSemantic}>{text("Inspect →", "检查 →")}</button>
           </div>
           </div>
         )}
@@ -2050,10 +2226,10 @@ function SourcesView({
         <button className="add-source-card" onClick={openUpload}>
           <span className="add-source-icon">＋</span>
           <strong>
-            {domain.isSample ? "Connect another source" : "Add the first domain source"}
+            {domain.isSample ? text("Connect another source", "连接其他数据源") : text("Add the first domain source", "添加首个域内数据源")}
           </strong>
-          <p>SQLite, CSV, or Parquet</p>
-          <span className="tiny-label">SEMANTICS REQUIRED</span>
+          <p>SQLite、CSV {text("or", "或")} Parquet</p>
+          <span className="tiny-label">{text("SEMANTICS REQUIRED", "必须评审语义")}</span>
         </button>
       </div>
 
@@ -2061,16 +2237,14 @@ function SourcesView({
         <section className="panel domain-source-empty">
           <span className="domain-card-icon">D</span>
           <div>
-            <span className="panel-kicker">EMPTY DOMAIN</span>
-            <h2>No data has entered {domain.name}</h2>
+            <span className="panel-kicker">{text("EMPTY DOMAIN", "空数据域")}</span>
+            <h2>{text(`No data has entered ${domain.name}`, `${domain.name} 尚未接入数据`)}</h2>
             <p>
-              Upload files here to profile them inside this domain. QueryForge
-              will not borrow entities or metrics from the Anime Streaming
-              sample.
+              {text("Upload files here to profile them inside this domain. NexusQL will not borrow entities or metrics from the Anime Streaming sample.", "在此上传文件并在当前数据域内完成剖析。NexusQL 不会借用 Anime Streaming 示例中的实体或指标。")}
             </p>
           </div>
           <button className="primary-button" onClick={openUpload}>
-            Upload domain data →
+            {text("Upload domain data →", "上传域内数据 →")}
           </button>
         </section>
       )}
@@ -2079,8 +2253,8 @@ function SourcesView({
         <section className="panel uploaded-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">NEWLY PUBLISHED</span>
-              <h2>Your uploaded sources</h2>
+              <span className="panel-kicker">{text("NEWLY PUBLISHED", "最近发布")}</span>
+              <h2>{text("Your uploaded sources", "已上传的数据源")}</h2>
             </div>
           </div>
           <div className="uploaded-source-grid">
@@ -2188,6 +2362,252 @@ function SourcesView({
   );
 }
 
+function PipelinesView({
+  domain,
+  hasSources,
+  openSources,
+}: {
+  domain: DataDomain;
+  hasSources: boolean;
+  openSources: () => void;
+}) {
+  const { text } = useLanguage();
+  const [isChecking, setIsChecking] = useState(false);
+  const [pipeline, setPipeline] = useState<PipelineStatus | null>(null);
+  const [pipelineError, setPipelineError] = useState("");
+
+  useEffect(() => {
+    if (!domain.isSample) {
+      return;
+    }
+    const controller = new AbortController();
+    fetch("/api/queryforge/engineering/pipeline/status", {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Pipeline status unavailable");
+        return response.json() as Promise<PipelineStatus>;
+      })
+      .then((payload) => {
+        setPipeline(payload);
+        setPipelineError("");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setPipelineError(
+          text(
+            "The pipeline API is unavailable. Restart the local backend.",
+            "数据管道 API 暂不可用，请重启本地后端。",
+          ),
+        );
+      });
+    return () => controller.abort();
+  }, [domain.id, domain.isSample, text]);
+
+  async function runPipelineCheck(scenario: "standard" | "quality_failure" = "standard") {
+    if (isChecking || !hasSources || !domain.isSample) return;
+    setIsChecking(true);
+    setPipelineError("");
+    try {
+      const response = await fetch(`/api/queryforge/engineering/pipeline/run?scenario=${scenario}`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Pipeline run failed");
+      const payload = (await response.json()) as {
+        status: string;
+        pipeline: PipelineStatus;
+      };
+      setPipeline(payload.pipeline);
+      if (payload.status !== "success") {
+        setPipelineError(text("Pipeline quality gates blocked publication.", "管道质量门禁阻止了发布。"));
+      }
+    } catch {
+      setPipelineError(text("Pipeline execution failed. Inspect the backend log for details.", "管道执行失败，请检查后端日志。"));
+    } finally {
+      setIsChecking(false);
+    }
+  }
+
+  const quality = pipeline?.quality;
+  const lastRun = pipeline?.last_run;
+  const canRun = domain.isSample && hasSources;
+  const watermark = pipeline?.watermark?.value ?? text("Not initialized", "尚未初始化");
+
+  return (
+    <div className="page pipelines-page">
+      <PageHeader
+        eyebrow={text("DATA ENGINEERING", "数据工程")}
+        title={`${domain.name} · ${text("Data Pipelines", "数据管道")}`}
+        description={text(
+          "Observe ingestion, validation, transformation, and publication as one governed pipeline with explicit SLAs and lineage.",
+          "将接入、校验、转换和发布作为一条受治理的数据管道进行观测，并明确展示 SLA 与数据血缘。",
+        )}
+        action={
+          <div className="pipeline-actions">
+            <button
+              className="secondary-button pipeline-failure-button"
+              onClick={() => void runPipelineCheck("quality_failure")}
+              disabled={!canRun || isChecking}
+            >
+              {text("⚠ Simulate quality failure", "⚠ 模拟质量失败")}
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => void runPipelineCheck("standard")}
+              disabled={!canRun || isChecking}
+            >
+              {isChecking
+                ? text("Running checks…", "正在执行检查…")
+                : text("▶ Run pipeline checks", "▶ 运行管道检查")}
+            </button>
+          </div>
+        }
+      />
+
+      {pipelineError && (
+        <div className="pipeline-error-banner" role="alert">
+          <span>!</span>
+          <strong>{pipelineError}</strong>
+        </div>
+      )}
+
+      {!canRun ? (
+        <section className="panel pipeline-empty-state">
+          <span className="pipeline-empty-icon">⇢</span>
+          <div>
+            <span className="panel-kicker">{text("PIPELINE CONFIGURATION REQUIRED", "需要配置数据管道")}</span>
+            <h2>{text("Connect data and publish its pipeline contract", "接入数据并发布管道契约")}</h2>
+            <p>{text("A runnable pipeline is always scoped to the active data domain. The bundled executable pipeline is available in the Anime Streaming sample domain.", "可执行管道始终限定在当前数据域内。Anime Streaming 示例域已经配置了内置的真实管道。")}</p>
+          </div>
+          <button className="primary-button" onClick={openSources}>
+            {text("Add data source →", "添加数据源 →")}
+          </button>
+        </section>
+      ) : (
+        <>
+          <section className="pipeline-health-grid" aria-label={text("Pipeline health", "管道健康状态")}>
+            {[
+              [text("Freshness SLA", "新鲜度 SLA"), pipeline?.watermark ? "Current" : "Pending", pipeline?.watermark ? text("Watermark persisted", "水位线已持久化") : text("Run required", "需要首次运行"), pipeline?.watermark ? "success" : "neutral"],
+              [text("Quality gate", "质量门禁"), quality?.checks_total ? `${quality.checks_passed} / ${quality.checks_total}` : "—", quality?.passed ? text("All checks passed", "全部通过") : text("Awaiting evidence", "等待运行证据"), quality?.passed ? "success" : "neutral"],
+              [text("Lineage coverage", "血缘覆盖率"), pipeline ? "100%" : "—", pipeline ? text("Source → staging → target", "源 → 暂存 → 目标") : text("Awaiting evidence", "等待运行证据"), pipeline ? "success" : "neutral"],
+              [text("Incremental watermark", "增量水位线"), watermark, lastRun?.published_rows === 0 ? text("Idempotent no-op", "幂等空运行") : text("Incremental append", "增量追加"), "neutral"],
+            ].map(([label, value, detail, status]) => (
+              <article className="pipeline-health-card" key={label}>
+                <span className={`pipeline-health-dot ${status}`} />
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <small>{detail}</small>
+              </article>
+            ))}
+          </section>
+
+          <section className="pipeline-workspace-grid">
+            <div className="panel pipeline-dag-panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="panel-kicker">{text("PIPELINE DAG", "管道 DAG")}</span>
+                  <h2>{text("Governed asset publication", "受治理数据资产发布")}</h2>
+                </div>
+                <span className={cn("status-pill", quality?.passed ? "success" : "neutral")}>{isChecking ? text("RUNNING", "运行中") : quality?.passed ? text("HEALTHY", "健康") : text("READY", "就绪")}</span>
+              </div>
+              <div className={cn("pipeline-dag", isChecking && "is-running")}>
+                {[
+                  ["01", text("Extract", "抽取"), pipeline?.lineage.source ?? text("CSV source", "CSV 数据源"), String(lastRun?.input_rows ?? pipeline?.source_rows ?? 0)],
+                  ["02", text("Validate", "校验"), text("Schema + quality", "结构与质量"), quality?.checks_total ? `${quality.checks_passed}/${quality.checks_total}` : "—"],
+                  ["03", text("Transform", "转换"), pipeline?.lineage.staging ?? text("Staging table", "暂存表"), String(lastRun?.staged_rows ?? 0)],
+                  ["04", text("Publish", "发布"), pipeline?.lineage.target ?? text("Target table", "目标表"), String(lastRun?.published_rows ?? 0)],
+                ].map(([index, label, detail, value], itemIndex) => (
+                  <div className="pipeline-dag-stage" key={index}>
+                    <span>{index}</span>
+                    <div>
+                      <strong>{label}</strong>
+                      <small>{detail}</small>
+                    </div>
+                    <b>{value}</b>
+                    {itemIndex < 3 && <i>→</i>}
+                  </div>
+                ))}
+              </div>
+              <div className="pipeline-dag-footer">
+                <span>{text("Idempotent build", "幂等构建")}</span>
+                <span>{text("Atomic publish", "原子发布")}</span>
+                <span>{text("Rollback safe", "支持安全回滚")}</span>
+                <span>{text("Read-only serving", "只读服务")}</span>
+              </div>
+            </div>
+
+            <aside className="panel pipeline-observability-panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="panel-kicker">{text("OBSERVABILITY", "可观测性")}</span>
+                  <h2>{text("Latest execution", "最近一次执行")}</h2>
+                </div>
+              </div>
+              <div className="pipeline-run-score">
+                <strong>{pipeline?.completed_runs ?? 0}</strong>
+                <span>{text("successful runs", "次成功运行")}</span>
+              </div>
+              <dl className="pipeline-run-facts">
+                <div><dt>{text("Rows read", "读取行数")}</dt><dd>{lastRun?.input_rows ?? pipeline?.source_rows ?? 0}</dd></div>
+                <div><dt>{text("Rows staged", "暂存行数")}</dt><dd>{lastRun?.staged_rows ?? 0}</dd></div>
+                <div><dt>{text("Rows published", "发布行数")}</dt><dd>{lastRun?.published_rows ?? 0}</dd></div>
+                <div><dt>{text("Rows quarantined", "隔离行数")}</dt><dd>{lastRun?.quarantined_rows ?? 0}</dd></div>
+              </dl>
+              <div className="pipeline-sla-bar"><span style={{ width: quality?.passed ? "100%" : "18%" }} /></div>
+              <small>{quality?.passed ? text("All persisted quality gates passed", "全部持久化质量门禁已通过") : text("Run the pipeline to collect quality evidence", "运行管道以采集质量证据")}</small>
+            </aside>
+          </section>
+          {quality && quality.failures.length > 0 && (
+            <section className="panel pipeline-failures-panel">
+              <span className="panel-kicker">{text("QUALITY FAILURES", "质量失败明细")}</span>
+              <h2>{text("Publication was blocked", "发布已被阻断")}</h2>
+              {quality.failures.map((failure) => <code key={failure}>{failure}</code>)}
+              {lastRun?.quarantine.map((item) => (
+                <div className="pipeline-quarantine-record" key={`${lastRun.run_id}-${item.reason}`}>
+                  <strong>{item.reason}</strong>
+                  <pre>{JSON.stringify(item.record, null, 2)}</pre>
+                </div>
+              ))}
+            </section>
+          )}
+          {pipeline && pipeline.recent_runs.length > 0 && (
+            <section className="panel pipeline-history-panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="panel-kicker">{text("RUN HISTORY", "运行历史")}</span>
+                  <h2>{text("Immutable pipeline evidence", "不可变管道证据")}</h2>
+                </div>
+                <span className="status-pill neutral">
+                  {pipeline.completed_runs} {text("passed", "成功")} · {pipeline.failed_runs} {text("failed", "失败")}
+                </span>
+              </div>
+              <div className="pipeline-history-list">
+                {pipeline.recent_runs.map((run) => (
+                  <article key={run.run_id}>
+                    <span className={cn("pipeline-run-state", run.status === "success" ? "success" : "failed")}>
+                      {run.status === "success" ? text("PASSED", "通过") : text("BLOCKED", "阻断")}
+                    </span>
+                    <div>
+                      <strong>{run.run_id.slice(0, 18)}…</strong>
+                      <small>{new Date(run.created_at).toLocaleString()}</small>
+                    </div>
+                    <dl>
+                      <div><dt>{text("staged", "暂存")}</dt><dd>{run.staged_rows}</dd></div>
+                      <div><dt>{text("published", "发布")}</dt><dd>{run.published_rows}</dd></div>
+                      <div><dt>{text("quarantined", "隔离")}</dt><dd>{run.quarantined_rows}</dd></div>
+                    </dl>
+                    <code>{run.watermark_before ?? "∅"} → {run.watermark_after ?? "∅"}</code>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function SemanticView({
   domain,
   hasSources,
@@ -2215,17 +2635,18 @@ function SemanticView({
   activeEntity: Entity;
   toast: (message: string) => void;
 }) {
+  const { language, text } = useLanguage();
   if (!domain.isSample) {
     return (
       <div className="page semantic-page">
         <PageHeader
-          eyebrow="DOMAIN SEMANTICS"
-          title={`${domain.name} · Semantic Studio`}
-          description="Build a domain-owned business contract. QueryForge never imports entities, metrics, or Join Paths from another domain."
+          eyebrow={text("DOMAIN SEMANTICS", "数据域语义")}
+          title={`${domain.name} · ${text("Semantic Studio", "语义工作台")}`}
+          description={text("Build a domain-owned business contract. NexusQL never imports entities, metrics, or Join Paths from another domain.", "构建归属于当前数据域的业务契约。NexusQL 不会从其他数据域导入实体、指标或 Join Path。")}
           action={
             <div className="header-action-group">
               <button className="secondary-button" onClick={openUpload}>
-                ＋ Add source
+                ＋ {text("Add source", "添加数据源")}
               </button>
               <button
                 className="primary-button"
@@ -2238,7 +2659,7 @@ function SemanticView({
                   )
                 }
               >
-                Validate draft
+                {text("Validate draft", "验证草稿")}
               </button>
             </div>
           }
@@ -2252,58 +2673,55 @@ function SemanticView({
           <div>
             <strong>
               {hasSources
-                ? "Domain contract needs business review"
-                : "Semantic construction starts with domain data"}
+                ? text("Domain contract needs business review", "数据域契约需要业务评审")
+                : text("Semantic construction starts with domain data", "语义构建从域内数据开始")}
             </strong>
             <p>
-              Identity, grain, metrics, relationships, ownership, policy, and
-              quality checks must all pass before analysis unlocks.
+              {text("Identity, grain, metrics, relationships, ownership, policy, and quality checks must all pass before analysis unlocks.", "实体身份、粒度、指标、关系、负责人、策略和质量检查必须全部通过，才能启用分析。")}
             </p>
           </div>
           <div className="semantic-health-metrics">
             <span>
-              <strong>{hasSources ? 1 : 0}</strong> draft entities
+              <strong>{hasSources ? 1 : 0}</strong> {text("draft entities", "个实体草稿")}
             </span>
             <span>
-              <strong>0</strong> relationships
+              <strong>0</strong> {text("relationships", "条关系")}
             </span>
             <span>
-              <strong>0</strong> metrics
+              <strong>0</strong> {text("metrics", "个指标")}
             </span>
             <span>
               <strong>0</strong> Join Paths
             </span>
           </div>
-          <span className="status-pill neutral">DRAFT</span>
+          <span className="status-pill neutral">{text("DRAFT", "草稿")}</span>
         </div>
 
         {!hasSources ? (
           <section className="panel semantic-empty-state">
             <span className="semantic-empty-icon">⌘</span>
             <div>
-              <span className="panel-kicker">NO PHYSICAL MODEL YET</span>
-              <h2>Add data before declaring business meaning</h2>
+              <span className="panel-kicker">{text("NO PHYSICAL MODEL YET", "尚无物理模型")}</span>
+              <h2>{text("Add data before declaring business meaning", "先接入数据，再声明业务含义")}</h2>
               <p>
-                QueryForge profiles tables and columns first, then proposes
-                candidate entities without pretending technical schema names
-                are business definitions.
+                {text("NexusQL profiles tables and columns first, then proposes candidate entities without pretending technical schema names are business definitions.", "NexusQL 会先剖析表和字段，再提出候选实体，不会把技术字段名直接当成业务定义。")}
               </p>
             </div>
             <button className="primary-button" onClick={openUpload}>
-              Add governed source →
+              {text("Add governed source →", "添加受治理数据源 →")}
             </button>
           </section>
         ) : (
           <div className="semantic-builder">
             <aside className="semantic-builder-steps">
-              <span className="panel-kicker">CONTRACT BUILDER</span>
+              <span className="panel-kicker">{text("CONTRACT BUILDER", "契约构建器")}</span>
               {[
-                ["01", "Identity & grain", "active"],
-                ["02", "Dimensions & measures", ""],
-                ["03", "Metrics", ""],
-                ["04", "Relationships", ""],
-                ["05", "Policy & quality", ""],
-                ["06", "Review & publish", ""],
+                ["01", text("Identity & grain", "实体与粒度"), "active"],
+                ["02", text("Dimensions & measures", "维度与度量"), ""],
+                ["03", text("Metrics", "指标"), ""],
+                ["04", text("Relationships", "关系"), ""],
+                ["05", text("Policy & quality", "策略与质量"), ""],
+                ["06", text("Review & publish", "评审与发布"), ""],
               ].map(([index, label, state]) => (
                 <button className={state} key={label}>
                   <span>{index}</span>
@@ -2314,79 +2732,85 @@ function SemanticView({
             <section className="panel semantic-contract-editor">
               <div className="panel-heading">
                 <div>
-                  <span className="panel-kicker">STEP 01</span>
-                  <h2>Define business identity and grain</h2>
+                  <span className="panel-kicker">{text("STEP 01", "第 01 步")}</span>
+                  <h2>{text("Define business identity and grain", "定义业务实体与数据粒度")}</h2>
                 </div>
-                <span className="status-pill neutral">REVIEW REQUIRED</span>
+                <span className="status-pill neutral">{text("REVIEW REQUIRED", "需要评审")}</span>
               </div>
               <p className="contract-editor-intro">
-                Start from the physical profile, then name the real business
-                entity and state exactly what one row represents.
+                {text(
+                  "Start from the physical profile, then name the real business entity and state exactly what one row represents.",
+                  "从物理数据剖析出发，定义真实的业务实体，并明确说明每一行数据代表什么。",
+                )}
               </p>
               <div className="semantic-contract-fields">
                 <label>
-                  <span>Business entity</span>
+                  <span>{text("Business entity", "业务实体")}</span>
                   <input defaultValue="uploaded_record" />
-                  <small>Use a stable singular business concept.</small>
+                  <small>{text("Use a stable singular business concept.", "使用稳定、单数形式的业务概念。")}</small>
                 </label>
                 <label>
-                  <span>Primary source</span>
-                  <input value="Latest profiled upload" readOnly />
-                  <small>Scoped to {domain.name}.</small>
+                  <span>{text("Primary source", "主要数据源")}</span>
+                  <input value={text("Latest profiled upload", "最近剖析的上传数据")} readOnly />
+                  <small>{text(`Scoped to ${domain.name}.`, `仅归属于 ${domain.name}。`)}</small>
                 </label>
                 <label className="wide">
-                  <span>Business description</span>
+                  <span>{text("Business description", "业务说明")}</span>
                   <textarea
                     rows={3}
-                    defaultValue="One reviewed business record represented by the uploaded source."
+                    defaultValue={text(
+                      "One reviewed business record represented by the uploaded source.",
+                      "上传数据源中的一条记录代表一条经过评审的业务记录。",
+                    )}
                   />
                 </label>
                 <label>
-                  <span>Grain</span>
+                  <span>{text("Grain", "数据粒度")}</span>
                   <input defaultValue="record_id" />
-                  <small>Required for safe aggregation.</small>
+                  <small>{text("Required for safe aggregation.", "安全聚合必须明确数据粒度。")}</small>
                 </label>
                 <label>
-                  <span>Owner</span>
+                  <span>{text("Owner", "负责人")}</span>
                   <input defaultValue={domain.owner} />
-                  <small>Accountable for semantic approval.</small>
+                  <small>{text("Accountable for semantic approval.", "负责语义审核与批准。")}</small>
                 </label>
               </div>
               <div className="contract-guardrail">
                 <span>!</span>
                 <p>
-                  Analysis remains blocked until the primary key is unique,
-                  every metric declares an aggregation and denominator, and all
-                  multi-hop relationships have a reviewed Join Path.
+                  {text(
+                    "Analysis remains blocked until the primary key is unique, every metric declares an aggregation and denominator, and all multi-hop relationships have a reviewed Join Path.",
+                    "在主键唯一、每个指标明确聚合方式与分母、所有多跳关系都拥有经过评审的 Join Path 之前，分析功能将保持阻断。",
+                  )}
                 </p>
               </div>
               <footer>
-                <span>Autosaved as a domain-local draft</span>
+                <span>{text("Autosaved as a domain-local draft", "已自动保存为当前数据域草稿")}</span>
                 <button
                   className="primary-button"
-                  onClick={() => toast("Identity and grain saved.")}
+                  onClick={() => toast(text("Identity and grain saved.", "实体与粒度已保存。"))}
                 >
-                  Save & continue →
+                  {text("Save & continue →", "保存并继续 →")}
                 </button>
               </footer>
             </section>
             <aside className="panel semantic-checklist">
-              <span className="panel-kicker">PUBLICATION GATE</span>
-              <h3>Required contract</h3>
+              <span className="panel-kicker">{text("PUBLICATION GATE", "发布门禁")}</span>
+              <h3>{text("Required contract", "必需契约")}</h3>
               {[
-                ["Entity has a clear grain", true],
-                ["Primary key is unique", false],
-                ["Metric units are explicit", false],
-                ["Cardinality is reviewed", false],
-                ["Sensitive fields are classified", false],
-                ["Quality checks pass", false],
+                [text("Entity has a clear grain", "实体粒度清晰"), true],
+                [text("Primary key is unique", "主键唯一"), false],
+                [text("Metric units are explicit", "指标单位明确"), false],
+                [text("Cardinality is reviewed", "关系基数已评审"), false],
+                [text("Sensitive fields are classified", "敏感字段已分类"), false],
+                [text("Quality checks pass", "质量检查通过"), false],
               ].map(([label, passed]) => (
                 <div key={String(label)} className={cn(passed && "passed")}>
                   <span>{passed ? "✓" : "○"}</span>
                   <strong>{label}</strong>
                 </div>
               ))}
-              <p>Data and semantics publish atomically only after 100%.</p>
+              <p>{text("Data and semantics publish atomically only after 100%.", "只有全部门禁通过后，数据与语义才会原子发布。")}</p>
             </aside>
           </div>
         )}
@@ -2397,22 +2821,22 @@ function SemanticView({
   return (
     <div className="page semantic-page">
       <PageHeader
-        eyebrow="BUSINESS MEANING"
-        title={`${domain.name} · Semantic Studio`}
-        description="Model entities, metrics, relationships, and safe Join Paths before any analytical query can run."
+        eyebrow={text("BUSINESS MEANING", "业务语义")}
+        title={`${domain.name} · ${text("Semantic Studio", "语义工作台")}`}
+        description={text("Model entities, metrics, relationships, and safe Join Paths before any analytical query can run.", "在执行分析查询之前，先建模实体、指标、关系和安全的 Join Path。")}
         action={
           <div className="header-action-group">
             <button
               className="secondary-button"
-              onClick={() => toast("Semantic model YAML downloaded.")}
+              onClick={() => toast(text("Semantic model YAML downloaded.", "语义模型 YAML 已下载。"))}
             >
-              ↓ Export YAML
+              ↓ {text("Export YAML", "导出 YAML")}
             </button>
             <button
               className="primary-button success-button"
-              onClick={() => toast("Semantic model is already published.")}
+              onClick={() => toast(text("Semantic model is already published.", "语义模型已经发布。"))}
             >
-              ✓ Published
+              ✓ {text("Published", "已发布")}
             </button>
           </div>
         }
@@ -2424,27 +2848,26 @@ function SemanticView({
           <span>/82</span>
         </div>
         <div>
-          <strong>Semantic contract healthy</strong>
+          <strong>{text("Semantic contract healthy", "语义契约健康")}</strong>
           <p>
-            All metric, grain, relationship, ownership, sensitivity, and
-            physical checks pass.
+            {text("All metric, grain, relationship, ownership, sensitivity, and physical checks pass.", "指标、粒度、关系、负责人、敏感性和物理结构检查均已通过。")}
           </p>
         </div>
         <div className="semantic-health-metrics">
           <span>
-            <strong>15</strong> entities
+            <strong>15</strong> {text("entities", "个实体")}
           </span>
           <span>
-            <strong>30</strong> relationships
+            <strong>30</strong> {text("relationships", "条关系")}
           </span>
           <span>
-            <strong>11</strong> metrics
+            <strong>11</strong> {text("metrics", "个指标")}
           </span>
           <span>
             <strong>7</strong> Join Paths
           </span>
         </div>
-        <span className="status-pill success">NO DRIFT</span>
+        <span className="status-pill success">{text("NO DRIFT", "无漂移")}</span>
       </div>
 
       <div className="semantic-tabs">
@@ -2452,19 +2875,19 @@ function SemanticView({
           className={cn(tab === "graph" && "active")}
           onClick={() => setTab("graph")}
         >
-          Relationship graph
+          {text("Relationship graph", "关系图谱")}
         </button>
         <button
           className={cn(tab === "metrics" && "active")}
           onClick={() => setTab("metrics")}
         >
-          Metric catalog <span>11</span>
+          {text("Metric catalog", "指标目录")} <span>11</span>
         </button>
         <button
           className={cn(tab === "paths" && "active")}
           onClick={() => setTab("paths")}
         >
-          Governed Join Paths <span>7</span>
+          {text("Governed Join Paths", "受治理的 Join Path")} <span>7</span>
         </button>
       </div>
 
@@ -2473,17 +2896,17 @@ function SemanticView({
           <aside className="entity-browser">
             <div className="workbench-header">
               <div>
-                <span className="panel-kicker">ENTITIES</span>
-                <strong>Business model</strong>
+                <span className="panel-kicker">{text("ENTITIES", "实体")}</span>
+                <strong>{text("Business model", "业务模型")}</strong>
               </div>
-              <button aria-label="Add entity">＋</button>
+              <button aria-label={text("Add entity", "添加实体")}>＋</button>
             </div>
             <label className="entity-search">
               <span>⌕</span>
               <input
                 value={entityFilter}
                 onChange={(event) => setEntityFilter(event.target.value)}
-                placeholder="Find an entity…"
+                placeholder={text("Find an entity…", "查找实体…")}
               />
             </label>
             <div className="entity-list">
@@ -2498,7 +2921,7 @@ function SemanticView({
                 >
                   <span className={cn("entity-type-dot", entity.kind)} />
                   <span>
-                    <strong>{entity.label}</strong>
+                    <strong>{localizeUiValue(entity.label, language)}</strong>
                     <small>{entity.table}</small>
                   </span>
                   <em>{entity.dimensions}</em>
@@ -2507,13 +2930,13 @@ function SemanticView({
             </div>
             <div className="entity-legend">
               <span>
-                <i className="entity-type-dot dimension" /> Dimension
+                <i className="entity-type-dot dimension" /> {text("Dimension", "维度")}
               </span>
               <span>
-                <i className="entity-type-dot fact" /> Fact
+                <i className="entity-type-dot fact" /> {text("Fact", "事实")}
               </span>
               <span>
-                <i className="entity-type-dot bridge" /> Bridge
+                <i className="entity-type-dot bridge" /> {text("Bridge", "桥接")}
               </span>
             </div>
           </aside>
@@ -2521,25 +2944,25 @@ function SemanticView({
           <section className="graph-stage">
             <div className="graph-toolbar">
               <div>
-                <button className="active">All domains</button>
-                <button>Content</button>
-                <button>Engagement</button>
-                <button>Commerce</button>
+                <button className="active">{text("All domains", "全部主题")}</button>
+                <button>{text("Content", "内容")}</button>
+                <button>{text("Engagement", "参与度")}</button>
+                <button>{text("Commerce", "商业化")}</button>
               </div>
               <div>
-                <button aria-label="Zoom out">−</button>
+                <button aria-label={text("Zoom out", "缩小")}>−</button>
                 <span>85%</span>
-                <button aria-label="Zoom in">＋</button>
-                <button aria-label="Fit graph">⌗</button>
+                <button aria-label={text("Zoom in", "放大")}>＋</button>
+                <button aria-label={text("Fit graph", "适应画布")}>⌗</button>
               </div>
             </div>
             <div className="graph-scroll">
               <div className="graph-canvas">
-                <div className="graph-domain domain-content">CONTENT</div>
+                <div className="graph-domain domain-content">{text("CONTENT", "内容")}</div>
                 <div className="graph-domain domain-engagement">
-                  ENGAGEMENT
+                  {text("ENGAGEMENT", "参与度")}
                 </div>
-                <div className="graph-domain domain-commerce">COMMERCE</div>
+                <div className="graph-domain domain-commerce">{text("COMMERCE", "商业化")}</div>
                 {GRAPH_LINKS.map((link, index) => (
                   <span
                     className="graph-link"
@@ -2571,7 +2994,7 @@ function SemanticView({
                           : "D"}
                     </span>
                     <span>
-                      <strong>{entity.label}</strong>
+                      <strong>{localizeUiValue(entity.label, language)}</strong>
                       <small>{entity.table}</small>
                     </span>
                     {entity.metrics > 0 && <em>{entity.metrics}</em>}
@@ -2584,44 +3007,50 @@ function SemanticView({
           <aside className="entity-inspector">
             <div className="inspector-top">
               <span className={cn("entity-badge", activeEntity.kind)}>
-                {activeEntity.kind.toUpperCase()}
+                {activeEntity.kind === "dimension"
+                  ? text("DIMENSION", "维度")
+                  : activeEntity.kind === "fact"
+                    ? text("FACT", "事实")
+                    : text("BRIDGE", "桥接")}
               </span>
-              <button aria-label="Close inspector">×</button>
+              <button aria-label={text("Close inspector", "关闭检查器")}>×</button>
             </div>
-            <h2>{activeEntity.label}</h2>
+            <h2>{localizeUiValue(activeEntity.label, language)}</h2>
             <code>{activeEntity.table}</code>
             <p>
-              Governed {activeEntity.kind} entity owned by{" "}
-              {activeEntity.owner}.
+              {text(
+                `Governed ${activeEntity.kind} entity owned by ${activeEntity.owner}.`,
+                `这是由 ${activeEntity.owner} 负责的受治理${activeEntity.kind === "fact" ? "事实" : activeEntity.kind === "dimension" ? "维度" : "桥接"}实体。`,
+              )}
             </p>
             <div className="inspector-section">
-              <span className="panel-kicker">CONTRACT</span>
+              <span className="panel-kicker">{text("CONTRACT", "契约")}</span>
               <label>
-                <span>Owner</span>
+                <span>{text("Owner", "负责人")}</span>
                 <input value={activeEntity.owner} readOnly />
               </label>
               <label>
-                <span>Grain</span>
+                <span>{text("Grain", "数据粒度")}</span>
                 <input value={activeEntity.grain} readOnly />
               </label>
               <label>
-                <span>Sensitivity</span>
+                <span>{text("Sensitivity", "敏感级别")}</span>
                 <select defaultValue="internal">
-                  <option>public</option>
-                  <option>internal</option>
-                  <option>restricted</option>
+                  <option value="public">{text("public", "公开")}</option>
+                  <option value="internal">{text("internal", "内部")}</option>
+                  <option value="restricted">{text("restricted", "受限")}</option>
                 </select>
               </label>
             </div>
             <div className="inspector-section">
               <div className="inspector-section-heading">
-                <span className="panel-kicker">DIMENSIONS</span>
+                <span className="panel-kicker">{text("DIMENSIONS", "维度")}</span>
                 <button>＋</button>
               </div>
               {[
-                ["Primary key", activeEntity.grain.split(" + ")[0]],
-                ["Display name", `${activeEntity.name}_name`],
-                ["Event date", "date_key"],
+                [text("Primary key", "主键"), activeEntity.grain.split(" + ")[0]],
+                [text("Display name", "显示名称"), `${activeEntity.name}_name`],
+                [text("Event date", "事件日期"), "date_key"],
               ].map(([label, field]) => (
                 <div className="field-row" key={label}>
                   <span>
@@ -2634,23 +3063,23 @@ function SemanticView({
             </div>
             <div className="inspector-section compact">
               <div>
-                <span>Metrics</span>
+                <span>{text("Metrics", "指标")}</span>
                 <strong>{activeEntity.metrics}</strong>
               </div>
               <div>
-                <span>Dimensions</span>
+                <span>{text("Dimensions", "维度")}</span>
                 <strong>{activeEntity.dimensions}</strong>
               </div>
               <div>
-                <span>Quality rules</span>
+                <span>{text("Quality rules", "质量规则")}</span>
                 <strong>4</strong>
               </div>
             </div>
             <button
               className="save-entity-button"
-              onClick={() => toast(`${activeEntity.label} draft saved.`)}
+              onClick={() => toast(text(`${activeEntity.label} draft saved.`, `${localizeUiValue(activeEntity.label, language)}草稿已保存。`))}
             >
-              Save entity draft
+              {text("Save entity draft", "保存实体草稿")}
             </button>
           </aside>
         </div>
@@ -2661,10 +3090,10 @@ function SemanticView({
           <div className="catalog-toolbar">
             <label className="entity-search">
               <span>⌕</span>
-              <input placeholder="Search 11 metrics…" />
+              <input placeholder={text("Search 11 metrics…", "搜索 11 个指标…")} />
             </label>
-            <button className="secondary-button">Filter by domain</button>
-            <button className="primary-button">＋ New metric</button>
+            <button className="secondary-button">{text("Filter by domain", "按主题筛选")}</button>
+            <button className="primary-button">＋ {text("New metric", "新建指标")}</button>
           </div>
           <div className="metric-catalog-grid">
             {METRICS.map((metric) => (
@@ -2672,22 +3101,22 @@ function SemanticView({
                 <div className="metric-definition-top">
                   <span className="metric-function">ƒ</span>
                   <div>
-                    <h3>{metric.label}</h3>
+                    <h3>{localizeUiValue(metric.label, language)}</h3>
                     <code>{metric.name}</code>
                   </div>
-                  <span className="status-pill success">VALID</span>
+                  <span className="status-pill success">{text("VALID", "有效")}</span>
                 </div>
-                <p>{metric.description}</p>
+                <p>{localizeUiValue(metric.description, language)}</p>
                 <div className="metric-expression">
                   <span>{metric.aggregation}</span>
                   <code>{metric.expression}</code>
                 </div>
                 <footer>
                   <span>
-                    Entity <strong>{metric.entity}</strong>
+                    {text("Entity", "实体")} <strong>{metric.entity}</strong>
                   </span>
-                  <button onClick={() => toast(`${metric.label} opened.`)}>
-                    Edit →
+                  <button onClick={() => toast(text(`${metric.label} opened.`, `已打开${localizeUiValue(metric.label, language)}。`))}>
+                    {text("Edit →", "编辑 →")}
                   </button>
                 </footer>
               </article>
@@ -2700,34 +3129,36 @@ function SemanticView({
         <div className="join-paths-panel">
           <div className="join-paths-intro">
             <div>
-              <span className="panel-kicker">FAN-OUT CONTROL</span>
-              <h2>Only reviewed paths reach SQL generation</h2>
+              <span className="panel-kicker">{text("FAN-OUT CONTROL", "扇出控制")}</span>
+              <h2>{text("Only reviewed paths reach SQL generation", "只有经过评审的路径才能用于生成 SQL")}</h2>
               <p>
-                Each path declares its hop sequence and cardinality so the agent
-                cannot invent joins or silently duplicate facts.
+                {text(
+                  "Each path declares its hop sequence and cardinality so the agent cannot invent joins or silently duplicate facts.",
+                  "每条路径都声明跳转顺序和关系基数，防止智能体虚构关联或在无提示的情况下重复事实数据。",
+                )}
               </p>
             </div>
-            <button className="primary-button">＋ Define Join Path</button>
+            <button className="primary-button">＋ {text("Define Join Path", "定义 Join Path")}</button>
           </div>
           <div className="join-paths-list">
             {JOIN_PATHS.map((path) => (
               <article className="join-path-row" key={path.name}>
                 <span className="join-path-icon">↝</span>
                 <div className="join-path-name">
-                  <strong>{path.label}</strong>
+                  <strong>{localizeUiValue(path.label, language)}</strong>
                   <code>{path.name}</code>
                 </div>
                 <div className="path-flow">
                   {path.steps.map((step, index) => (
                     <span key={step}>
-                      <b>{step}</b>
+                      <b>{localizeUiValue(step, language)}</b>
                       {index < path.steps.length - 1 && <i>→</i>}
                     </span>
                   ))}
                 </div>
-                <span className="hop-count">{path.hops} hops</span>
-                <span className="status-pill success">{path.risk}</span>
-                <button aria-label={`Edit ${path.label}`}>···</button>
+                <span className="hop-count">{path.hops} {text("hops", "跳")}</span>
+                <span className="status-pill success">{localizeUiValue(path.risk, language)}</span>
+                <button aria-label={text(`Edit ${path.label}`, `编辑${localizeUiValue(path.label, language)}`)}>···</button>
               </article>
             ))}
           </div>
@@ -2768,16 +3199,17 @@ function AskView({
   selectRun: (run: RunRecord) => void;
   connection: ConnectionState;
 }) {
+  const { language, text } = useLanguage();
   if (!domain.isSample) {
     return (
       <div className="page domain-analysis-page">
         <PageHeader
-          eyebrow="DOMAIN ANALYSIS"
-          title={`${domain.name} · Ask & Analyze`}
-          description="Questions execute only against the active domain after its semantic contract and runtime connector are published."
+          eyebrow={text("DOMAIN ANALYSIS", "数据域分析")}
+          title={`${domain.name} · ${text("Ask & Analyze", "问答分析")}`}
+          description={text("Questions execute only against the active domain after its semantic contract and runtime connector are published.", "只有发布当前数据域的语义契约和运行连接器后，问题才能在该数据域中执行。")}
           action={
             <span className="status-pill neutral">
-              {hasSources ? "SEMANTICS REQUIRED" : "DATA REQUIRED"}
+              {hasSources ? text("SEMANTICS REQUIRED", "需要语义契约") : text("DATA REQUIRED", "需要数据")}
             </span>
           }
         />
@@ -2790,23 +3222,21 @@ function AskView({
             <em>SQL</em>
           </div>
           <div>
-            <span className="panel-kicker">SAFE BY DEFAULT</span>
+            <span className="panel-kicker">{text("SAFE BY DEFAULT", "默认安全")}</span>
             <h2>
               {hasSources
-                ? "Publish the semantic contract to unlock questions"
-                : "This domain needs data before it can answer"}
+                ? text("Publish the semantic contract to unlock questions", "发布语义契约后才能启用问答")
+                : text("This domain needs data before it can answer", "该数据域接入数据后才能回答问题")}
             </h2>
             <p>
-              QueryForge will not fall back to the Anime Streaming sample or
-              invent joins when this domain is incomplete. Domain context,
-              meaning, policy, and evidence must travel together.
+              {text("NexusQL will not fall back to the Anime Streaming sample or invent joins when this domain is incomplete. Domain context, meaning, policy, and evidence must travel together.", "当前数据域不完整时，NexusQL 不会回退到 Anime Streaming 示例或虚构连接。数据域上下文、业务含义、策略和证据必须始终一致。")}
             </p>
             <div className="analysis-lock-checks">
               {[
-                ["Domain selected", true],
-                ["Source available", hasSources],
-                ["Semantic contract published", false],
-                ["Execution connector ready", false],
+                [text("Domain selected", "已选择数据域"), true],
+                [text("Source available", "数据源可用"), hasSources],
+                [text("Semantic contract published", "语义契约已发布"), false],
+                [text("Execution connector ready", "执行连接器就绪"), false],
               ].map(([label, ready]) => (
                 <span key={String(label)} className={cn(ready && "ready")}>
                   {ready ? "✓" : "○"} {label}
@@ -2828,9 +3258,9 @@ function AskView({
     <div className="ask-workspace">
       <aside className="conversation-rail">
         <button className="new-query-button" onClick={() => setQuery("")}>
-          <span>＋</span> New analysis
+          <span>＋</span> {text("New analysis", "新建分析")}
         </button>
-        <div className="conversation-label">RECENT</div>
+        <div className="conversation-label">{text("RECENT", "最近运行")}</div>
         {runs.map((run) => (
           <button
             className="conversation-item"
@@ -2839,16 +3269,16 @@ function AskView({
           >
             <span>✦</span>
             <span>
-              <strong>{run.question}</strong>
-              <small>{run.time}</small>
+              <strong>{localizeUiValue(run.question, language)}</strong>
+              <small>{localizeUiValue(run.time, language)}</small>
             </span>
           </button>
         ))}
         <div className="conversation-bottom">
           <span className="shield-icon">◆</span>
           <div>
-            <strong>Governed mode</strong>
-            <small>Semantic model required</small>
+            <strong>{text("Governed mode", "治理模式")}</strong>
+            <small>{text("Semantic model required", "必须使用语义模型")}</small>
           </div>
         </div>
       </aside>
@@ -2858,15 +3288,15 @@ function AskView({
           <div>
             <div className="eyebrow">
               <span className="pulse-dot" />
-              {connection === "live" ? "LIVE ANALYSIS" : "INTERACTIVE DEMO"}
+              {connection === "live" ? text("LIVE ANALYSIS", "实时分析") : text("INTERACTIVE DEMO", "交互演示")}
             </div>
-            <h1>Ask & Analyze</h1>
+            <h1>{text("Ask & Analyze", "问答分析")}</h1>
           </div>
           <div className="analysis-actions">
             <button className="secondary-button" onClick={downloadResult}>
-              ↓ Export
+              ↓ {text("Export", "导出")}
             </button>
-            <button className="icon-button" aria-label="More actions">
+            <button className="icon-button" aria-label={text("More actions", "更多操作")}>
               ···
             </button>
           </div>
@@ -2875,19 +3305,19 @@ function AskView({
         <form className="ask-composer" onSubmit={submitQuery}>
           <span className="query-spark">✦</span>
           <textarea
-            value={query}
+            value={localizeUiValue(query, language)}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ask a business question…"
-            aria-label="Business question"
+            placeholder={text("Ask a business question…", "输入一个业务问题…")}
+            aria-label={text("Business question", "业务问题")}
             rows={2}
           />
           <div className="composer-options">
             <span className="option-chip">{domain.name}</span>
-            <span className="option-chip">Auto complexity</span>
-            <span className="option-chip">Report on</span>
+            <span className="option-chip">{text("Auto complexity", "自动复杂度")}</span>
+            <span className="option-chip">{text("Report on", "生成报告")}</span>
           </div>
           <button type="submit" disabled={isRunning || !query.trim()}>
-            {isRunning ? "Running…" : "Run"}
+            {isRunning ? text("Running…", "运行中…") : text("Run", "运行")}
             <span>↵</span>
           </button>
         </form>
@@ -2895,22 +3325,22 @@ function AskView({
         <div className="question-suggestions">
           {EXAMPLE_QUESTIONS.slice(1).map((item) => (
             <button key={item} onClick={() => void runQuery(item)}>
-              {item}
+              {localizeUiValue(item, language)}
             </button>
           ))}
         </div>
 
         {isRunning ? (
           <div className="run-progress-panel">
-            <div className="run-progress-orb">QF</div>
-            <h2>Building a governed answer</h2>
-            <p>Every stage produces evidence before SQL can execute.</p>
+            <div className="run-progress-orb">NQ</div>
+            <h2>{text("Building a governed answer", "正在构建受治理答案")}</h2>
+            <p>{text("Every stage produces evidence before SQL can execute.", "SQL 执行前，每个阶段都会生成可审计证据。")}</p>
             <div className="run-stage-list">
               {[
-                ["Resolve semantics", "Matched metrics, entities and grain"],
-                ["Plan Join Paths", "Selected reviewed relationships"],
-                ["Govern SQL", "AST policy and bounded preview"],
-                ["Validate answer", "Result quality and report artifacts"],
+                [text("Resolve semantics", "解析语义"), text("Matched metrics, entities and grain", "匹配指标、实体和数据粒度")],
+                [text("Plan Join Paths", "规划 Join Path"), text("Selected reviewed relationships", "选择经过评审的关系")],
+                [text("Govern SQL", "治理 SQL"), text("AST policy and bounded preview", "AST 策略与有界预览")],
+                [text("Validate answer", "验证答案"), text("Result quality and report artifacts", "结果质量与报告产物")],
               ].map(([label, detail], index) => {
                 const number = index + 1;
                 return (
@@ -2936,27 +3366,27 @@ function AskView({
         ) : (
           <>
             <article className="answer-card">
-              <div className="answer-avatar">QF</div>
+              <div className="answer-avatar">NQ</div>
               <div className="answer-content">
                 <div className="answer-meta">
-                  <strong>QueryForge</strong>
-                  <span className="status-pill success">GOVERNED</span>
+                  <strong>NexusQL</strong>
+                  <span className="status-pill success">{text("GOVERNED", "已治理")}</span>
                   <small>{result.runId}</small>
                 </div>
-                <p>{result.explanation}</p>
+                <p>{localizeUiValue(result.explanation, language)}</p>
                 <div className="answer-highlights">
                   <div>
-                    <span>Top genre</span>
-                    <strong>{String(result.rows[0]?.[0] ?? "Fantasy")}</strong>
+                    <span>{text("Top genre", "观看时长最高类型")}</span>
+                    <strong>{localizeUiValue(String(result.rows[0]?.[0] ?? "Fantasy"), language)}</strong>
                   </div>
                   <div>
-                    <span>Watch hours</span>
+                    <span>{text("Watch hours", "观看时长")}</span>
                     <strong>
                       {Number(result.rows[0]?.[1] ?? 0).toLocaleString()}
                     </strong>
                   </div>
                   <div>
-                    <span>Best completion</span>
+                    <span>{text("Best completion", "最高完播率")}</span>
                     <strong>
                       {Math.max(
                         ...result.rows.map((row) => Number(row[2]) || 0),
@@ -2972,12 +3402,12 @@ function AskView({
               <section className="panel result-chart-panel">
                 <div className="panel-heading">
                   <div>
-                    <span className="panel-kicker">RESULT VISUALIZATION</span>
-                    <h2>Watch hours by genre</h2>
+                    <span className="panel-kicker">{text("RESULT VISUALIZATION", "结果可视化")}</span>
+                    <h2>{text("Watch hours by genre", "各类型观看时长")}</h2>
                   </div>
                   <div className="segmented small">
-                    <button className="active">Bar</button>
-                    <button>Table</button>
+                    <button className="active">{text("Bar", "柱状图")}</button>
+                    <button>{text("Table", "表格")}</button>
                   </div>
                 </div>
                 <div className="horizontal-chart">
@@ -2985,7 +3415,7 @@ function AskView({
                     const value = Number(row[1]) || 0;
                     return (
                       <div className="horizontal-bar-row" key={`${row[0]}-${index}`}>
-                        <span>{String(row[0])}</span>
+                        <span>{localizeUiValue(String(row[0]), language)}</span>
                         <div>
                           <i style={{ width: `${(value / maxValue) * 100}%` }} />
                         </div>
@@ -2996,20 +3426,20 @@ function AskView({
                 </div>
                 <div className="chart-footnote">
                   <span>
-                    <i className="legend-primary" /> Watch hours
+                    <i className="legend-primary" /> {text("Watch hours", "观看时长")}
                   </span>
-                  <span>Valid sessions only · Rounded to 1 decimal</span>
+                  <span>{text("Valid sessions only · Rounded to 1 decimal", "仅统计有效会话 · 保留 1 位小数")}</span>
                 </div>
               </section>
 
               <section className="panel sql-panel">
                 <div className="panel-heading">
                   <div>
-                    <span className="panel-kicker">GENERATED SQL</span>
-                    <h2>Auditable query</h2>
+                    <span className="panel-kicker">{text("GENERATED SQL", "生成的 SQL")}</span>
+                    <h2>{text("Auditable query", "可审计查询")}</h2>
                   </div>
                   <button className="copy-button" onClick={copySql}>
-                    ⧉ Copy
+                    ⧉ {text("Copy", "复制")}
                   </button>
                 </div>
                 <pre>
@@ -3021,17 +3451,17 @@ function AskView({
             <section className="panel result-table-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="panel-kicker">REVIEWED ROWS</span>
-                  <h2>Query result</h2>
+                  <span className="panel-kicker">{text("REVIEWED ROWS", "已审核结果行")}</span>
+                  <h2>{text("Query result", "查询结果")}</h2>
                 </div>
-                <span className="row-count">{result.rowCount} rows</span>
+                <span className="row-count">{result.rowCount} {text("rows", "行")}</span>
               </div>
               <div className="result-table-scroll">
                 <table>
                   <thead>
                     <tr>
                       {result.columns.map((column) => (
-                        <th key={column}>{column}</th>
+                        <th key={column}>{localizeUiValue(column, language)}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3042,7 +3472,9 @@ function AskView({
                           <td key={cellIndex}>
                             {typeof cell === "number"
                               ? cell.toLocaleString()
-                              : cell}
+                              : typeof cell === "string"
+                                ? localizeUiValue(cell, language)
+                                : cell}
                           </td>
                         ))}
                       </tr>
@@ -3058,18 +3490,18 @@ function AskView({
       <aside className="trust-rail">
         <div className="trust-heading">
           <div>
-            <span className="panel-kicker">TRUST TRACE</span>
-            <strong>Why this answer is safe</strong>
+            <span className="panel-kicker">{text("TRUST TRACE", "可信追踪")}</span>
+            <strong>{text("Why this answer is safe", "为什么这个答案可信")}</strong>
           </div>
           <span className="trust-score">100</span>
         </div>
         <div className="trust-section">
-          <span className="trust-section-label">SEMANTIC MATCH</span>
+          <span className="trust-section-label">{text("SEMANTIC MATCH", "语义匹配")}</span>
           <div className="trust-card">
             <span className="trust-card-icon metric">ƒ</span>
             <div>
               <strong>watch_hours</strong>
-              <small>SUM · watch_session</small>
+              <small>{text("SUM · watch_session", "求和 · 观看会话")}</small>
             </div>
             <span>99%</span>
           </div>
@@ -3077,36 +3509,36 @@ function AskView({
             <span className="trust-card-icon metric">%</span>
             <div>
               <strong>completion_rate</strong>
-              <small>RATIO · watch_session</small>
+              <small>{text("RATIO · watch_session", "比率 · 观看会话")}</small>
             </div>
             <span>98%</span>
           </div>
         </div>
         <div className="trust-section">
-          <span className="trust-section-label">JOIN PATH</span>
+          <span className="trust-section-label">{text("JOIN PATH", "关联路径")}</span>
           <div className="mini-path">
-            <span>Watch</span>
+            <span>{text("Watch", "观看会话")}</span>
             <i>→</i>
-            <span>Episode</span>
+            <span>{text("Episode", "剧集")}</span>
             <i>→</i>
-            <span>Anime</span>
+            <span>{text("Anime", "动漫")}</span>
           </div>
           <div className="trust-note success">
             <span>✓</span>
             <p>
-              Reviewed path
-              <small>No fan-out risk detected</small>
+              {text("Reviewed path", "路径已评审")}
+              <small>{text("No fan-out risk detected", "未检测到扇出风险")}</small>
             </p>
           </div>
         </div>
         <div className="trust-section">
-          <span className="trust-section-label">SQL POLICY</span>
+          <span className="trust-section-label">{text("SQL POLICY", "SQL 策略")}</span>
           {[
-            ["Read-only AST", "Passed"],
-            ["Table scope", "Passed"],
-            ["Join budget", "4 / 5"],
-            ["Result limit", "6 / 500"],
-            ["Sensitive columns", "None"],
+            [text("Read-only AST", "只读 AST"), text("Passed", "通过")],
+            [text("Table scope", "数据表范围"), text("Passed", "通过")],
+            [text("Join budget", "关联预算"), "4 / 5"],
+            [text("Result limit", "结果行数限制"), "6 / 500"],
+            [text("Sensitive columns", "敏感字段"), text("None", "无")],
           ].map(([label, value]) => (
             <div className="policy-check" key={label}>
               <span>✓</span>
@@ -3116,20 +3548,20 @@ function AskView({
           ))}
         </div>
         <div className="trust-section">
-          <span className="trust-section-label">QUALITY</span>
+          <span className="trust-section-label">{text("QUALITY", "质量")}</span>
           <div className="quality-score">
             <div>
               <strong>96</strong>
               <span>/100</span>
             </div>
             <p>
-              Result quality
-              <small>Grain, nulls and reconciliation passed</small>
+              {text("Result quality", "结果质量")}
+              <small>{text("Grain, nulls and reconciliation passed", "粒度、空值和对账检查均通过")}</small>
             </p>
           </div>
         </div>
         <button className="trace-download" onClick={downloadResult}>
-          ↓ Download complete run artifact
+          ↓ {text("Download complete run artifact", "下载完整运行产物")}
         </button>
       </aside>
     </div>
@@ -3149,25 +3581,26 @@ function RunsView({
   selectRun: (run: RunRecord) => void;
   downloadResult: () => void;
 }) {
+  const { text } = useLanguage();
   return (
     <div className="page">
       <PageHeader
-        eyebrow="AUDITABILITY"
-        title="Run History"
-        description="Every route, semantic match, policy decision, SQL candidate, and quality result is preserved as evidence."
+        eyebrow={text("AUDITABILITY", "可审计性")}
+        title={text("Run History", "运行历史")}
+        description={text("Every route, semantic match, policy decision, SQL candidate, and quality result is preserved as evidence.", "每次路由、语义匹配、策略决策、SQL 候选和质量结果都会作为证据留存。")}
         action={
           <button className="secondary-button" onClick={downloadResult}>
-            ↓ Export history
+            ↓ {text("Export history", "导出历史")}
           </button>
         }
       />
 
       <div className="run-summary-grid">
         {[
-          ["Total runs", "128", "Last 30 days"],
-          ["Pass rate", "96.1%", "+2.4%"],
-          ["Policy blocks", "5", "Expected denials"],
-          ["Median latency", "1.72s", "−180ms"],
+          [text("Total runs", "运行总数"), "128", text("Last 30 days", "最近 30 天")],
+          [text("Pass rate", "通过率"), "96.1%", "+2.4%"],
+          [text("Policy blocks", "策略阻断"), "5", text("Expected denials", "符合预期的拒绝")],
+          [text("Median latency", "延迟中位数"), "1.72s", "−180ms"],
         ].map(([label, value, detail]) => (
           <div className="run-summary-card" key={label}>
             <span>{label}</span>
@@ -3186,24 +3619,24 @@ function RunsView({
                 className={cn(filter === item && "active")}
                 onClick={() => setFilter(item)}
               >
-                {item}
+                {item === "All" ? text("All", "全部") : item === "Passed" ? text("Passed", "已通过") : text("Blocked", "已阻断")}
               </button>
             ))}
           </div>
           <label className="table-search wide">
             <span>⌕</span>
-            <input placeholder="Search questions or run IDs…" />
+            <input placeholder={text("Search questions or run IDs…", "搜索问题或运行 ID…")} />
           </label>
-          <button className="secondary-button">Last 30 days ⌄</button>
+          <button className="secondary-button">{text("Last 30 days", "最近 30 天")} ⌄</button>
         </div>
         <div className="runs-table">
           <div className="runs-table-head">
-            <span>Status</span>
-            <span>Question</span>
-            <span>Model</span>
-            <span>Rows</span>
-            <span>Duration</span>
-            <span>When</span>
+            <span>{text("Status", "状态")}</span>
+            <span>{text("Question", "问题")}</span>
+            <span>{text("Model", "模型")}</span>
+            <span>{text("Rows", "行数")}</span>
+            <span>{text("Duration", "耗时")}</span>
+            <span>{text("When", "时间")}</span>
             <span />
           </div>
           {runs.map((run) => (
@@ -3219,7 +3652,7 @@ function RunsView({
                     run.status === "Passed" ? "success" : "danger",
                   )}
                 >
-                  {run.status}
+                  {run.status === "Passed" ? text("Passed", "已通过") : run.status === "Blocked" ? text("Blocked", "已阻断") : text("Running", "运行中")}
                 </span>
               </span>
               <span className="run-question-cell">
@@ -3383,7 +3816,7 @@ function UploadModal({
               <div>
                 <strong>Physical profile complete</strong>
                 <p>
-                  QueryForge inferred a draft only. Business definitions still
+                  NexusQL inferred a draft only. Business definitions still
                   require human review.
                 </p>
               </div>
@@ -3778,7 +4211,7 @@ function SettingsModal({
           <div>
             <span className="panel-kicker">WORKSPACE</span>
             <h2 id="settings-title">Runtime settings</h2>
-            <p>Control the live QueryForge connection and query defaults.</p>
+            <p>Control the live NexusQL connection and query defaults.</p>
           </div>
           <button className="modal-close" onClick={close} aria-label="Close">
             ×
@@ -3796,7 +4229,7 @@ function SettingsModal({
           <div>
             <strong>
               {connection === "live"
-                ? "QueryForge backend connected"
+                ? "NexusQL backend connected"
                 : "Interactive demo mode"}
             </strong>
             <p>

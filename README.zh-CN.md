@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/queryforge-hero.svg" width="100%" alt="QueryForge — 从自然语言到可信 SQL 的受治理 AI 数据分析平台">
+<img src="web/public/nexusql-og.png" width="100%" alt="NexusQL — 从自然语言到可信 SQL 的受治理 AI 数据分析平台">
 
-# QueryForge
+# NexusQL
 
 ### 从自然语言到可审计 SQL 的受治理 AI 数据分析平台
 
@@ -14,21 +14,21 @@
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-只读执行-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20治理-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-249%20passing-2EA44F)
+![Tests](https://img.shields.io/badge/tests-252%20covered-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
 
 ---
 
-QueryForge 是一个本地优先、以数据域为第一入口的 AI 数据分析平台，它围绕一个核心原则设计：
+NexusQL 是一个本地优先、以数据域为第一入口的 AI 数据分析平台，它围绕一个核心原则设计：
 **模型生成的 SQL 应该像应用代码一样被治理，而不是像自然语言一样被直接信任。**
 
 用户先创建或选择数据域（如零售、金融、产品分析，或仓库内置的 Anime Streaming
 示例域），再在该域内上传数据、评审语义契约和发起分析。项目把这套域级工作流与
 NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和完整运行产物串成闭环。
 
-> QueryForge 当前专注 SQLite 和受控环境，是面向作品展示与架构验证的参考项目，
+> NexusQL 当前专注 SQLite 和受控环境，是面向作品展示与架构验证的参考项目，
 > 不是可直接公网部署的多租户分析服务。
 
 ## 增强版说明
@@ -39,7 +39,7 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 - 确保 SQLite 连接在成功及异常路径下都能确定性关闭；
 - 在数据库执行边界使用短生命周期、只读连接；
 - 在 Windows 上使用高精度、基于截止时间的 Tool Loop 超时控制；
-- 增加跨平台回归覆盖，当前 **249 项测试全部通过**。
+- 增加跨平台回归覆盖，当前共覆盖 **252 项测试**（251 项通过，1 项为平台相关跳过）。
 
 ### 归属与许可证说明
 
@@ -50,31 +50,31 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 ## 产品界面
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-domains.png" width="100%" alt="QueryForge 数据域中心：创建和选择相互隔离的业务上下文">
+  <img src="docs/assets/queryforge-studio-domains.png" width="100%" alt="NexusQL 数据域中心：创建和选择相互隔离的业务上下文">
   <sub>数据域中心——先创建或选择治理边界，再接入该域的数据与语义。</sub>
 </div>
 
 <br>
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-overview.png" width="100%" alt="QueryForge Studio 总览：语义契约健康度、业务指标与互动趋势">
+  <img src="docs/assets/queryforge-studio-overview.png" width="100%" alt="NexusQL Studio 总览：语义契约健康度、业务指标与互动趋势">
   <sub>数据域总览——Anime Streaming 只是当前选中的示例域，不再是平台身份。</sub>
 </div>
 
 <br>
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-semantic.png" width="49%" alt="QueryForge Semantic Studio 实体关系图和契约编辑器">
-  <img src="docs/assets/queryforge-studio-analysis.png" width="49%" alt="QueryForge 受治理分析结果、生成 SQL 与 Trust Trace">
+  <img src="docs/assets/queryforge-studio-semantic.png" width="49%" alt="NexusQL Semantic Studio 实体关系图和契约编辑器">
+  <img src="docs/assets/queryforge-studio-analysis.png" width="49%" alt="NexusQL 受治理分析结果、生成 SQL 与 Trust Trace">
   <br>
   <sub>语义建模工作台 &nbsp;·&nbsp; 带可审计 SQL 和 Trust Trace 的受治理分析</sub>
 </div>
 
-## 为什么是 QueryForge？
+## 为什么是 NexusQL？
 
-大多数 NL2SQL Demo 在模型输出查询后就结束了，QueryForge 关注的是完整交付链路：
+大多数 NL2SQL Demo 在模型输出查询后就结束了，NexusQL 关注的是完整交付链路：
 
-| 真实问题 | QueryForge 的处理方式 |
+| 真实问题 | NexusQL 的处理方式 |
 | --- | --- |
 | 如何信任生成的 SQL | 使用 SQLGlot 解析 AST，执行前应用具名安全策略 |
 | 如何保证业务口径一致 | 用 YAML 定义指标、维度、粒度和 Join Path |
@@ -93,6 +93,9 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 - **自适应工作流**：简单问题保持轻量；复杂问题可启用 Tool Loop 和并发候选选择。
 - **默认只读**：普通分析以只读方式打开 SQLite，并拒绝写操作和管理类 SQL。
 - **统一多端交付**：同一应用服务可通过 CLI、REST/SSE、MCP 和 Webhook Gateway 使用。
+- **中英文工作台**：完整工作区外壳和主要数据工作流支持英文与简体中文切换，并持久保存语言偏好。
+- **可执行的数据管道可观测性**：运行已评审的示例数据资产管道，检查持久化增量水位线、
+  质量门禁、隔离行、数据血缘、幂等重跑和发布证据。
 - **可复现评测**：仓库内置离线验收流程，以及覆盖三个业务域的 120 条 NL2SQL 金标集。
 
 ## 快速开始
@@ -142,18 +145,18 @@ queryforge \
   --question "Compare watch completion and merchandise GMV by anime genre"
 ```
 
-### 体验 QueryForge Studio
+### 体验 NexusQL Studio
 
 仓库现在包含一个完整的可视化工作台：可以创建和切换数据域、在域内接入数据、评审
 强制语义层、提出受治理的自然语言问题、检查 SQL 与 Trust Trace 证据，并审计域内
 历史运行。
 
 ```bash
-# 终端 1：QueryForge API
+# 终端 1：NexusQL API
 python -m pip install -e ".[api]"
 queryforge --serve-api
 
-# 终端 2：QueryForge Studio
+# 终端 2：NexusQL Studio
 make web-install
 make web-dev
 ```
@@ -165,7 +168,7 @@ make web-dev
 ## 系统架构
 
 <div align="center">
-  <img src="docs/assets/queryforge-flow.svg" width="100%" alt="QueryForge 动态运行架构图">
+  <img src="docs/assets/queryforge-flow.svg" width="100%" alt="NexusQL 动态运行架构图">
 </div>
 
 对外生命周期保持精简：
@@ -211,7 +214,7 @@ allow_cross_join: false
 
 ## 业务语义层
 
-QueryForge 使用 YAML 语义模型补充原始 Schema 无法表达的业务上下文：
+NexusQL 使用 YAML 语义模型补充原始 Schema 无法表达的业务上下文：
 
 ```yaml
 metrics:
@@ -227,7 +230,7 @@ metrics:
 ```
 
 模型可声明实体、维度、指标、粒度、关系、Join Path、fan-out 约束、运营元数据和
-物理质量规则。QueryForge 现在默认强制使用经过校验的语义模型，并自动发现数据库旁边
+物理质量规则。NexusQL 现在默认强制使用经过校验的语义模型，并自动发现数据库旁边
 的模型；除非显式启用诊断逃生口，否则不允许只依赖裸 Schema 查询。
 
 Studio 中的语义层构建是「域优先 + 强门禁」流程：
@@ -266,7 +269,7 @@ Schema、指标、关系、Join Path 和数据质量契约。
 ### 内置示例数据域：Anime Streaming
 
 Anime Streaming 是一个开箱即用的示例数据域，不是全平台 Schema。其数据是专为
-QueryForge 构造的全合成数据：**370,762 行**、**15 张表**、
+NexusQL 构造的全合成数据：**370,762 行**、**15 张表**、
 **30 条声明关系**、**7 条受治理 Join Path**、**11 个业务指标**，覆盖内容、
 观看、订阅、广告、社区和动漫周边。
 
@@ -390,7 +393,7 @@ queryforge/
 
 evaluation/gold/       # 多业务域 NL2SQL 评测集
 sample_data/           # 可直接运行的 SQLite 数据集和语义模型
-web/                   # QueryForge Studio 与托管持久化适配器
+web/                   # NexusQL Studio 与托管持久化适配器
 scripts/               # 构建、基准、评测和验收工具
 tests/                 # 单元、集成、边界和验收测试
 docs/                  # 架构与功能文档
@@ -432,6 +435,10 @@ CI 会在 Python 3.11 和 3.12 上执行离线验收。
 | 系统架构 | [Agent Team 架构](docs/agent_team_architecture.md) |
 | 配置 | [配置参考](docs/configuration.md) |
 | Studio | [可视化工作台与语义数据接入](docs/studio.md) |
+| 求职材料 | [简历描述与项目完善路线](docs/career_resume_zh.md) |
+| 面试备战 | [项目讲解、高频问答与演示脚本](docs/interview_guide_zh.md) |
+| 演示操作 | [现场演示、录屏与故障兜底手册](docs/demo_playbook_zh.md) |
+| 优化路线 | [优化评估与实施优先级](docs/optimization_backlog_zh.md) |
 | REST API | [API 参考](docs/api_reference.md) |
 | MCP | [MCP Server](docs/mcp_server.md) |
 | 语义层 | [语义契约](docs/semantic_contracts.md) |
@@ -455,7 +462,7 @@ CI 会在 Python 3.11 和 3.12 上执行离线验收。
 
 ## 范围与安全边界
 
-QueryForge 的安全保证适用于其配置后的 SQLite 执行边界。项目目前**不包含**：
+NexusQL 的安全保证适用于其配置后的 SQLite 执行边界。项目目前**不包含**：
 
 - 生产级认证授权、多租户隔离和限流；
 - 持久化分布式工作流恢复或 token 级取消；

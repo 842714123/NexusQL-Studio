@@ -1,11 +1,11 @@
-# QueryForge Documentation
+# NexusQL Documentation
 
 ## Start Here
 
 - [Configuration](configuration.md)
 - [Semantic layer authoring](semantic_authoring.md)
 - [Data asset ingestion](data_assets.md)
-- [QueryForge Studio](studio.md)
+- [NexusQL Studio](studio.md)
 - [REST API](api_reference.md)
 - [MCP server](mcp_server.md)
 
@@ -20,3 +20,10 @@
 - [GitHub release checklist](github_release.md)
 - [Report artifacts](report_artifact.md)
 - [NL2SQL evaluation](nl2sql_evaluation.md)
+
+## Career Preparation (Chinese)
+
+- [Resume descriptions and improvement roadmap](career_resume_zh.md)
+- [Project interview guide and answer bank](interview_guide_zh.md)
+- [Step-by-step demonstration playbook](demo_playbook_zh.md)
+- [Prioritized optimization backlog](optimization_backlog_zh.md)

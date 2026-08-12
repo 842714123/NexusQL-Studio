@@ -1,5 +1,5 @@
 {
-  "name": "queryforge-studio",
+  "name": "nexusql-studio",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -41,5 +41,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "description": "Visual semantic workspace for governed AI analytics"
+  "description": "NexusQL governed AI data engineering and NL2SQL workspace"
 }

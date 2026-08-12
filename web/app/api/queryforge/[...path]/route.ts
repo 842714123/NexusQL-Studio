@@ -5,12 +5,14 @@ const ALLOWED_PATHS = new Set([
   "ask",
   "ask/stream",
   "plan",
+  "engineering/pipeline/status",
+  "engineering/pipeline/run",
 ]);
 
 function backendUrl(parts: string[]) {
   const path = parts.join("/");
   if (!ALLOWED_PATHS.has(path)) {
-    throw new Error("Unsupported QueryForge API route.");
+    throw new Error("Unsupported NexusQL API route.");
   }
   const base = (
     process.env.QUERYFORGE_API_URL ?? "http://127.0.0.1:8000"
@@ -24,7 +26,8 @@ async function proxy(
 ) {
   try {
     const { path } = await context.params;
-    const target = backendUrl(path);
+    const target = new URL(backendUrl(path));
+    target.search = new URL(request.url).search;
     const headers = new Headers();
     const contentType = request.headers.get("content-type");
     if (contentType) headers.set("content-type", contentType);
@@ -57,7 +60,7 @@ async function proxy(
         detail:
           error instanceof Error
             ? error.message
-            : "QueryForge backend unavailable.",
+            : "NexusQL backend unavailable.",
       },
       { status: 503 },
     );

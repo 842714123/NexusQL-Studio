@@ -1,6 +1,6 @@
-# QueryForge Studio
+# NexusQL Studio
 
-The domain-first visual workspace for QueryForge. Users create or select a data
+The domain-first visual workspace for NexusQL. Users create or select a data
 domain, then onboard that domain's sources, build its mandatory semantic
 contract, run governed analysis, inspect SQL and trust evidence, and audit
 domain-scoped history in one responsive interface.
@@ -18,7 +18,7 @@ Open <http://localhost:3000>. The bundled Anime Streaming domain remains
 interactive in demo mode when the Python API is unavailable. Newly created
 domains start empty and never inherit sample entities or metrics.
 
-For live answers, start the QueryForge API from the repository root in a second
+For live answers, start the NexusQL-compatible API from the repository root in a second
 terminal:
 
 ```bash

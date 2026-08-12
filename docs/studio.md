@@ -1,6 +1,6 @@
-# QueryForge Studio
+# NexusQL Studio
 
-QueryForge Studio is the browser interface for the governed analytics runtime.
+NexusQL Studio is the browser interface for the governed analytics runtime.
 It is designed around a domain-first rule: business context must be selected
 before data, semantics, or analysis can exist. The semantic layer stays visible
 and editable instead of hiding behind an opaque chat box.
@@ -15,7 +15,7 @@ make web-dev
 ```
 
 Open <http://localhost:3000>. The interface uses a deterministic demo response
-when the QueryForge API is offline, which is useful for exploring the product.
+when the NexusQL-compatible API is offline, which is useful for exploring the product.
 
 For live execution, start the Python API in another terminal:
 
@@ -40,10 +40,33 @@ The Studio sends requests through its same-origin `/api/queryforge/*` proxy. Set
 9. Ask questions and inspect Trust Trace evidence within that same domain.
 
 The top-bar domain switcher changes the context for Overview, Data Sources,
-Semantic Studio, Ask & Analyze, and Run History. Sources and runs carry a
+Data Pipelines, Semantic Studio, Ask & Analyze, and Run History. Sources and runs carry a
 `domain_id`; uploaded objects use
 `domains/{domainId}/sources/{sourceId}/...`. A new domain never reuses semantic
 definitions from the sample.
+
+## Executable data pipeline workspace
+
+The bundled Anime Streaming domain includes a real, local data-asset pipeline
+behind the **Data Pipelines** view. The Studio calls two bounded API routes:
+
+- `GET /engineering/pipeline/status` reads persisted watermark, lineage,
+  quarantine, quality-gate, and run evidence;
+- `POST /engineering/pipeline/run` executes the reviewed
+  `sample_data/data_assets/assets.yml` contract. The bounded
+  `scenario=quality_failure` mode appends a deterministic newer row with a
+  missing required field for interview-safe failure demonstrations.
+
+The first run ingests and atomically publishes the CSV asset. Later runs use
+the persisted watermark and unique-key contract, so unchanged input produces
+an auditable idempotent no-op rather than duplicate rows. Runtime databases and
+immutable run evidence are stored separately, so an atomic publication rollback
+does not erase the quarantined record or failure explanation shown in Studio.
+The run-history panel exposes recent row counts, status, watermark movement, and
+quarantine evidence. Runtime databases and
+published semantics stay under `.queryforge/studio_pipeline/` and are excluded
+from source control. The endpoints intentionally execute only the bundled,
+reviewed contract; they do not accept arbitrary local paths from HTTP clients.
 
 ## Mandatory semantic onboarding
 

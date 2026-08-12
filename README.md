@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/queryforge-hero.svg" width="100%" alt="QueryForge — governed AI analytics from natural language to trusted SQL">
+<img src="web/public/nexusql-og.png" width="100%" alt="NexusQL — governed AI analytics from natural language to trusted SQL">
 
-# QueryForge
+# NexusQL
 
 ### Governed AI analytics, from natural language to auditable SQL
 
@@ -14,25 +14,25 @@ policy enforcement, bounded recovery, and production-friendly delivery interface
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-read--only-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20policy-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-249%20passing-2EA44F)
+![Tests](https://img.shields.io/badge/tests-252%20covered-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
 
 ---
 
-QueryForge is a local-first, domain-first AI data analytics platform built around
+NexusQL is a local-first, domain-first AI data analytics platform built around
 one principle:
 **generated SQL should be governed like application code, not trusted like prose**.
 
 Users create or select a data domain first—such as retail, finance, product, or
 the bundled Anime Streaming sample—then onboard that domain's data, review its
 semantic contract, and ask questions inside the same governance boundary.
-QueryForge combines that workflow with natural-language-to-SQL, AST-level
+NexusQL combines that workflow with natural-language-to-SQL, AST-level
 security, read-only execution, multi-candidate selection, repair budgets, and
 complete run artifacts.
 
-> QueryForge currently targets SQLite and controlled environments. It is a
+> NexusQL currently targets SQLite and controlled environments. It is a
 > portfolio-grade reference architecture, not a multi-tenant analytics service.
 
 ## Enhanced Edition
@@ -45,7 +45,7 @@ resource handling:
 - deterministic SQLite connection cleanup across success and failure paths;
 - short-lived, read-only database connections at the execution boundary;
 - high-resolution, deadline-based tool-loop timeouts on Windows; and
-- cross-platform regression coverage, with **249 tests passing**.
+- cross-platform regression coverage, with **252 tests covered** (251 passing and 1 platform-specific skip).
 
 ### Attribution and licensing
 
@@ -58,32 +58,32 @@ with the upstream copyright holder before redistribution or commercial use.
 ## Product Tour
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-domains.png" width="100%" alt="QueryForge Data Domain Center for creating and selecting isolated business contexts">
+  <img src="docs/assets/queryforge-studio-domains.png" width="100%" alt="NexusQL Data Domain Center for creating and selecting isolated business contexts">
   <sub>Data Domain Center — create or select a governed context before adding data or semantics.</sub>
 </div>
 
 <br>
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-overview.png" width="100%" alt="QueryForge Studio overview with semantic health, business metrics, and engagement trends">
+  <img src="docs/assets/queryforge-studio-overview.png" width="100%" alt="NexusQL Studio overview with semantic health, business metrics, and engagement trends">
   <sub>Domain overview — the Anime Streaming dataset is shown as one selected sample, not the platform identity.</sub>
 </div>
 
 <br>
 
 <div align="center">
-  <img src="docs/assets/queryforge-studio-semantic.png" width="49%" alt="QueryForge Semantic Studio entity relationship graph and contract editor">
-  <img src="docs/assets/queryforge-studio-analysis.png" width="49%" alt="QueryForge governed analysis result with generated SQL and Trust Trace">
+  <img src="docs/assets/queryforge-studio-semantic.png" width="49%" alt="NexusQL Semantic Studio entity relationship graph and contract editor">
+  <img src="docs/assets/queryforge-studio-analysis.png" width="49%" alt="NexusQL governed analysis result with generated SQL and Trust Trace">
   <br>
   <sub>Semantic Studio &nbsp;·&nbsp; Governed analysis with auditable SQL and Trust Trace</sub>
 </div>
 
-## Why QueryForge?
+## Why NexusQL?
 
-Most NL2SQL demos stop after a model emits a query. QueryForge covers the full
+Most NL2SQL demos stop after a model emits a query. NexusQL covers the full
 delivery loop:
 
-| Need | QueryForge approach |
+| Need | NexusQL approach |
 | --- | --- |
 | Trust the generated SQL | Parse with SQLGlot and enforce a named policy before execution |
 | Keep business meaning consistent | Define metrics, dimensions, grain, and join paths in YAML |
@@ -106,6 +106,11 @@ delivery loop:
   mode and rejects write or administrative SQL.
 - **Multiple delivery surfaces** — use the same application service through the
   CLI, REST/SSE, MCP, or a webhook gateway.
+- **Bilingual Studio** — switch the complete workspace shell and primary data
+  workflows between English and Simplified Chinese with a persisted preference.
+- **Executable data pipeline observability** — run the reviewed sample asset
+  pipeline and inspect persisted incremental watermarks, quality gates,
+  quarantined rows, lineage, idempotent re-runs, and publication evidence.
 - **Reproducible evaluation** — the repository includes offline acceptance checks
   and a 120-case, three-domain NL2SQL gold set.
 
@@ -156,7 +161,7 @@ queryforge \
   --question "Compare watch completion and merchandise GMV by anime genre"
 ```
 
-### Explore QueryForge Studio
+### Explore NexusQL Studio
 
 The repository includes a complete visual workspace for creating and switching
 data domains, onboarding domain-owned data, reviewing the required semantic
@@ -164,11 +169,11 @@ layer, asking governed questions, inspecting SQL and Trust Trace evidence, and
 auditing domain-scoped run history.
 
 ```bash
-# Terminal 1: QueryForge API
+# Terminal 1: NexusQL API
 python -m pip install -e ".[api]"
 queryforge --serve-api
 
-# Terminal 2: QueryForge Studio
+# Terminal 2: NexusQL Studio
 make web-install
 make web-dev
 ```
@@ -181,7 +186,7 @@ deterministic demo response. See the [Studio guide](docs/studio.md).
 ## How It Works
 
 <div align="center">
-  <img src="docs/assets/queryforge-flow.svg" width="100%" alt="Animated QueryForge runtime architecture">
+  <img src="docs/assets/queryforge-flow.svg" width="100%" alt="Animated NexusQL runtime architecture">
 </div>
 
 The public lifecycle stays intentionally small:
@@ -228,7 +233,7 @@ Policy denials return a structured `SQL_SECURITY_ERROR` before SQLite execution.
 
 ## Semantic Layer
 
-QueryForge's YAML semantic models give generated SQL business context that raw
+NexusQL's YAML semantic models give generated SQL business context that raw
 schemas cannot provide:
 
 ```yaml
@@ -246,7 +251,7 @@ metrics:
 
 Models can declare entities, dimensions, metrics, grain, relationships, join
 paths, fan-out constraints, operational metadata, and physical quality rules.
-QueryForge requires a validated model by default; it auto-discovers a model beside
+NexusQL requires a validated model by default; it auto-discovers a model beside
 the database and rejects schema-only analysis unless the caller explicitly selects
 the diagnostic escape hatch.
 
@@ -288,7 +293,7 @@ baseline.
 ### Bundled sample domain: Anime Streaming
 
 Anime Streaming is one ready-to-run example data domain, not a product-wide
-schema. The dataset is purpose-built for QueryForge and fully synthetic: **370,762
+schema. The dataset is purpose-built for NexusQL and fully synthetic: **370,762
 rows**, **15 tables**, **30 declared relationships**, **7 governed Join Paths**, and
 **11 business metrics** across content, engagement, subscriptions, advertising,
 community, and merchandise.
@@ -415,7 +420,7 @@ queryforge/
 
 evaluation/gold/       # Multi-domain NL2SQL evaluation cases
 sample_data/           # Ready-to-run SQLite datasets and semantic models
-web/                   # QueryForge Studio and hosted persistence adapters
+web/                   # NexusQL Studio and hosted persistence adapters
 scripts/               # Build, benchmark, evaluation, and acceptance tools
 tests/                 # Unit, integration, boundary, and acceptance tests
 docs/                  # Architecture and feature documentation
@@ -482,7 +487,7 @@ their behalf.
 
 ## Scope and Security
 
-QueryForge's guarantees apply to its configured SQLite execution boundary. The
+NexusQL's guarantees apply to its configured SQLite execution boundary. The
 project does **not** currently include:
 
 - production authentication, authorization, tenant isolation, or rate limiting;

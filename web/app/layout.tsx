@@ -11,17 +11,17 @@ export async function generateMetadata(): Promise<Metadata> {
   const metadataBase = new URL(
     host ? `${protocol}://${host}` : "http://localhost:3000",
   );
-  const socialImage = new URL("/og.png", metadataBase).toString();
+  const socialImage = new URL("/nexusql-og.png", metadataBase).toString();
 
   return {
     metadataBase,
     title: {
-      default: "QueryForge Studio",
-      template: "%s · QueryForge Studio",
+      default: "NexusQL Studio",
+      template: "%s · NexusQL Studio",
     },
     description:
-      "A visual semantic workspace for governed AI analytics, auditable SQL, and atomic data publication.",
-    applicationName: "QueryForge Studio",
+      "A governed AI data engineering and NL2SQL workspace for auditable analytics and atomic publication.",
+    applicationName: "NexusQL Studio",
     keywords: [
       "AI analytics",
       "NL2SQL",
@@ -30,10 +30,10 @@ export async function generateMetadata(): Promise<Metadata> {
       "SQL governance",
     ],
     icons: {
-      icon: "/favicon.png",
+      icon: "/nexusql-og.png",
     },
     openGraph: {
-      title: "QueryForge Studio",
+      title: "NexusQL Studio",
       description:
         "Ask your data. Inspect every semantic, policy, and quality decision.",
       type: "website",
@@ -42,13 +42,13 @@ export async function generateMetadata(): Promise<Metadata> {
           url: socialImage,
           width: 1774,
           height: 887,
-          alt: "QueryForge Studio semantic workspace",
+          alt: "NexusQL governed AI data and NL2SQL workspace",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "QueryForge Studio",
+      title: "NexusQL Studio",
       description:
         "Governed AI analytics with a mandatory semantic layer.",
       images: [socialImage],
