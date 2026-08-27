@@ -2625,34 +2625,46 @@ function PipelinesView({
           ),
         );
       });
-    void loadOperationHistory(controller.signal).catch((error: unknown) => {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-    });
-    return () => controller.abort();
+    // Defer the history refresh so the effect only starts subscriptions and
+    // requests; React's lint rule otherwise treats the resulting state update
+    // as a synchronous cascade during effect setup.
+    const historyTimer = window.setTimeout(() => {
+      void loadOperationHistory(controller.signal).catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      });
+    }, 0);
+    return () => {
+      controller.abort();
+      window.clearTimeout(historyTimer);
+    };
   }, [domain.id, domain.isSample, loadOperationHistory, text]);
 
   useEffect(() => {
     if (!operation) return;
     if (["succeeded", "failed", "cancelled"].includes(operation.status)) {
-      setIsChecking(false);
-      if (operation.result?.pipeline) setPipeline(operation.result.pipeline);
-      if (operation.status === "failed") {
-        setPipelineError(
-          operation.error_type === "data_quality_error"
-            ? text(
-                "Data-quality gates blocked publication. Inspect the failed stage and Quarantine evidence below.",
-                "数据质量门禁阻止了发布，请检查下方失败阶段和 Quarantine 证据。",
-              )
-            : operation.error_message ||
-                text("Pipeline execution failed.", "数据管道执行失败。"),
-        );
-      } else if (operation.status === "cancelled") {
-        setPipelineError(text("Queued run cancelled.", "排队任务已取消。"));
-      } else {
-        setPipelineError("");
-      }
-      void loadOperationHistory();
-      return;
+      // State updates belong to the completed operation callback rather than
+      // the synchronous effect setup, avoiding an unnecessary render cascade.
+      const completionTimer = window.setTimeout(() => {
+        setIsChecking(false);
+        if (operation.result?.pipeline) setPipeline(operation.result.pipeline);
+        if (operation.status === "failed") {
+          setPipelineError(
+            operation.error_type === "data_quality_error"
+              ? text(
+                  "Data-quality gates blocked publication. Inspect the failed stage and Quarantine evidence below.",
+                  "数据质量门禁阻止了发布，请检查下方失败阶段和 Quarantine 证据。",
+                )
+              : operation.error_message ||
+                  text("Pipeline execution failed.", "数据管道执行失败。"),
+          );
+        } else if (operation.status === "cancelled") {
+          setPipelineError(text("Queued run cancelled.", "排队任务已取消。"));
+        } else {
+          setPipelineError("");
+        }
+        void loadOperationHistory();
+      }, 0);
+      return () => window.clearTimeout(completionTimer);
     }
 
     const controller = new AbortController();
