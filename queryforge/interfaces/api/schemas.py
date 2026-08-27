@@ -1,8 +1,14 @@
 """Transport request schemas kept separate from workflow state."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from queryforge.application import AgentOptions
+from queryforge.application.studio_asset_models import (
+    AssetProfileRequest,
+    AssetPublishRequest,
+)
 
 
 class AskRequest(BaseModel):
@@ -78,3 +84,17 @@ class GatewayWebhookRequest(BaseModel):
     user_id: str = Field(min_length=1)
     channel: str = Field(min_length=1)
     text: str = Field(min_length=1)
+
+
+class PipelineRunRequest(BaseModel):
+    scenario: Literal["standard", "quality_failure"] = "standard"
+
+
+
+__all__ = [
+    "AskRequest",
+    "AssetProfileRequest",
+    "AssetPublishRequest",
+    "GatewayWebhookRequest",
+    "PipelineRunRequest",
+]

@@ -121,9 +121,10 @@ class DataAssetSpec(StrictAssetModel):
     target_table: str | None = None
     column_aliases: dict[str, str] = Field(default_factory=dict)
     watermark_field: str | None = None
+    watermark_lookback_seconds: int = Field(default=0, ge=0, le=2_592_000)
     quality: AssetQualityRules = Field(default_factory=AssetQualityRules)
     semantic: AssetSemanticSpec
-    publish_mode: Literal["append", "replace"] = "append"
+    publish_mode: Literal["append", "replace", "upsert"] = "append"
 
     @field_validator("name", "target_table", "watermark_field")
     @classmethod
@@ -141,6 +142,12 @@ class DataAssetSpec(StrictAssetModel):
             raise ValueError(
                 "watermark_field cannot be combined with publish_mode=replace"
             )
+        if self.watermark_lookback_seconds and not self.watermark_field:
+            raise ValueError(
+                "watermark_lookback_seconds requires watermark_field"
+            )
+        if self.publish_mode == "upsert" and not self.quality.unique_key:
+            raise ValueError("publish_mode=upsert requires quality.unique_key")
         return self
 
 

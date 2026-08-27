@@ -14,7 +14,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-只读执行-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20治理-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-252%20covered-2EA44F)
+![Tests](https://img.shields.io/badge/tests-260%20covered-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
@@ -39,7 +39,7 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 - 确保 SQLite 连接在成功及异常路径下都能确定性关闭；
 - 在数据库执行边界使用短生命周期、只读连接；
 - 在 Windows 上使用高精度、基于截止时间的 Tool Loop 超时控制；
-- 增加跨平台回归覆盖，当前共覆盖 **252 项测试**（251 项通过，1 项为平台相关跳过）。
+- 增加跨平台回归覆盖，当前共覆盖 **260 项测试**（259 项通过，1 项为可选依赖跳过）。
 
 ### 归属与许可证说明
 
@@ -96,6 +96,12 @@ NL2SQL、AST 级安全策略、只读执行、多候选选择、有界修复和�
 - **中英文工作台**：完整工作区外壳和主要数据工作流支持英文与简体中文切换，并持久保存语言偏好。
 - **可执行的数据管道可观测性**：运行已评审的示例数据资产管道，检查持久化增量水位线、
   质量门禁、隔离行、数据血缘、幂等重跑和发布证据。
+- **可执行的数据域接入**：对上传的 CSV 或 Parquet 进行真实字段剖析，由用户审核候选主键、
+  Watermark、指标与质量合同，再发布数据域专属的 SQLite、语义模型和 SQL 策略。
+- **持久化管道编排**：样例管道以 202 异步任务提交，持久化 queued/running/终态，支持失败
+  分类、带祖先关系的人工重试、排队任务取消，并展示排队、阶段和执行耗时。
+- **迟到数据修正**：组合有界时间 Watermark 回看与唯一键 Upsert，在水位线只向前推进的
+  前提下安全重放迟到记录，并修正已经发布的业务记录。
 - **可复现评测**：仓库内置离线验收流程，以及覆盖三个业务域的 120 条 NL2SQL 金标集。
 
 ## 快速开始
@@ -162,8 +168,9 @@ make web-dev
 ```
 
 打开 <http://localhost:3000>，从「Data Domains」进入：可选择内置 Anime Streaming
-示例域，也可创建一个完全空白的新域，然后只在当前域内上传数据。Python API 离线时，
-示例域分析会使用确定性的演示结果。详见 [Studio 使用指南](docs/studio.md)。
+示例域，也可创建空白域并上传 CSV 或 Parquet。Studio 会真实剖析文件，并在合同审核后
+发布该域专属的可查询资产。Python API 离线时，仅内置示例域使用确定性的演示结果；
+自定义数据域不会用样例结果冒充真实查询。详见 [Studio 使用指南](docs/studio.md)。
 
 ## 系统架构
 

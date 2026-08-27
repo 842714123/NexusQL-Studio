@@ -16,6 +16,17 @@ and does not yet claim semantic-versioning stability.
 - QueryForge Studio for data onboarding, semantic modeling, governed analysis,
   trust inspection, and persistent run history.
 - D1/R2-backed atomic uploads that require a reviewed semantic contract.
+- Executable CSV/Parquet profiling and domain publication through Studio,
+  producing queryable SQLite, semantic-model, SQL-policy, and run artifacts.
+- Custom-domain governed queries that use the database and contracts produced
+  by publication instead of substituting bundled sample results.
+- SQLite-backed asynchronous pipeline orchestration with queued/running/terminal
+  states, restart recovery, failure classification, retry ancestry, and safe
+  queued-run cancellation.
+- Per-stage extract, normalize/stage, quality, publish, semantic-catalog, and
+  atomic-batch timings surfaced in the Studio pipeline workspace.
+- Bounded ISO-date/timestamp Watermark lookback with database-enforced business
+  keys, insert/update Upsert evidence, and late-record replay tests.
 - GitHub Actions quality gates and repository contribution/security metadata.
 
 ### Changed

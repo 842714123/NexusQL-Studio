@@ -14,7 +14,7 @@ policy enforcement, bounded recovery, and production-friendly delivery interface
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-read--only-003B57?logo=sqlite&logoColor=white)
 ![SQLGlot](https://img.shields.io/badge/SQL%20policy-SQLGlot-6B4FBB)
-![Tests](https://img.shields.io/badge/tests-252%20covered-2EA44F)
+![Tests](https://img.shields.io/badge/tests-260%20covered-2EA44F)
 ![Semantic contracts](https://img.shields.io/badge/semantic%20checks-82%20passing-7C3AED)
 
 </div>
@@ -45,7 +45,7 @@ resource handling:
 - deterministic SQLite connection cleanup across success and failure paths;
 - short-lived, read-only database connections at the execution boundary;
 - high-resolution, deadline-based tool-loop timeouts on Windows; and
-- cross-platform regression coverage, with **252 tests covered** (251 passing and 1 platform-specific skip).
+- cross-platform regression coverage, with **260 tests covered** (259 passing and 1 optional-dependency skip).
 
 ### Attribution and licensing
 
@@ -111,6 +111,15 @@ delivery loop:
 - **Executable data pipeline observability** — run the reviewed sample asset
   pipeline and inspect persisted incremental watermarks, quality gates,
   quarantined rows, lineage, idempotent re-runs, and publication evidence.
+- **Executable domain onboarding** — profile an uploaded CSV or Parquet file,
+  review the inferred primary key, watermark, metrics, and quality contract,
+  then publish a domain-owned SQLite database, semantic model, and SQL policy.
+- **Durable pipeline orchestration** — submit sample pipeline work as a 202 task,
+  persist queued/running/terminal states, classify failures, retry with ancestry,
+  cancel queued work, and inspect queue, stage, and execution timings.
+- **Late-data correction** — combine a bounded temporal watermark lookback with
+  unique-key upsert, preserving forward-only checkpoints while safely replaying
+  late arrivals and corrected business records.
 - **Reproducible evaluation** — the repository includes offline acceptance checks
   and a 120-case, three-domain NL2SQL gold set.
 
@@ -179,9 +188,11 @@ make web-dev
 ```
 
 Open <http://localhost:3000>. Start in **Data Domains**, select the bundled Anime
-Streaming example or create a clean domain, then add data inside that domain. If
-the Python API is offline, the sample-domain analysis remains explorable with a
-deterministic demo response. See the [Studio guide](docs/studio.md).
+Streaming example or create a clean domain, then add a CSV or Parquet asset.
+Studio physically profiles the file and publishes governed, domain-owned query
+artifacts after contract review. If the Python API is offline, only the bundled
+sample-domain analysis remains explorable with a deterministic demo response;
+custom domains never substitute sample results. See the [Studio guide](docs/studio.md).
 
 ## How It Works
 

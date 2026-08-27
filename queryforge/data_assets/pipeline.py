@@ -7,6 +7,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from queryforge.data_assets.transforms import (
     normalize_fields,
     normalize_identifier,
     normalize_record,
+    watermark_lower_bound,
 )
 from queryforge.domain.semantic import (
     SemanticContractValidator,
@@ -98,8 +100,10 @@ class DataAssetBuilder:
         self.publish_database.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_metadata()
         checkpoint = self._create_publication_checkpoint()
+        batch_started = perf_counter()
         results = [self._build_asset(asset) for asset in config.assets]
         report = None
+        semantic_started: float | None = None
         semantic_path = Path(
             semantic_model_output or self.default_semantic_model
         ).expanduser().resolve()
@@ -107,6 +111,7 @@ class DataAssetBuilder:
             f".pending{semantic_path.suffix}"
         )
         if all(result.status == "success" for result in results):
+            semantic_started = perf_counter()
             if self._write_semantic_model(pending_path, config.semantic_model):
                 try:
                     report = self._validate_semantic_publication(pending_path)
@@ -156,6 +161,15 @@ class DataAssetBuilder:
                 self._record_contract_report(report, pending_path)
         else:
             self._discard_publication_checkpoint(checkpoint)
+        semantic_duration_ms = (
+            round((perf_counter() - semantic_started) * 1000, 3)
+            if semantic_started is not None
+            else 0.0
+        )
+        batch_duration_ms = round((perf_counter() - batch_started) * 1000, 3)
+        for result in results:
+            result.details["semantic_publication_ms"] = semantic_duration_ms
+            result.details["batch_duration_ms"] = batch_duration_ms
         return results
 
     def build(self, asset: DataAssetSpec) -> AssetBuildResult:
@@ -184,29 +198,76 @@ class DataAssetBuilder:
         )
         raw_rows: list[dict[str, Any]] = []
         quarantined: list[tuple[dict[str, Any], str]] = []
+        stage_durations: dict[str, float] = {}
+        stage_name = "extract"
+        stage_started = perf_counter()
+        total_started = stage_started
+
+        def advance(next_stage: str | None) -> None:
+            nonlocal stage_name, stage_started
+            stage_durations[stage_name] = round(
+                (perf_counter() - stage_started) * 1000,
+                3,
+            )
+            if next_stage is not None:
+                stage_name = next_stage
+                stage_started = perf_counter()
+
+        def record_timing(failed_stage: str | None = None) -> None:
+            result.details["stage_durations_ms"] = dict(stage_durations)
+            result.details["total_asset_duration_ms"] = round(
+                (perf_counter() - total_started) * 1000,
+                3,
+            )
+            if failed_stage:
+                result.details["failed_stage"] = failed_stage
+
         try:
             watermark_before = self._load_watermark(asset.name)
             result.watermark_before = watermark_before
+            effective_watermark = watermark_lower_bound(
+                watermark_before,
+                asset.watermark_lookback_seconds,
+            )
+            result.details["watermark_effective_lower_bound"] = effective_watermark
+            result.details["watermark_lookback_seconds"] = (
+                asset.watermark_lookback_seconds
+            )
             raw_rows = self._read_source(asset)
             result.input_rows = len(raw_rows)
+            advance("normalize_and_stage")
             normalized_rows = [
                 normalize_record(row, asset.column_aliases) for row in raw_rows
             ]
             staged_rows = [
                 row
                 for row in normalized_rows
-                if is_after_watermark(row, asset.watermark_field, watermark_before)
+                if is_after_watermark(row, asset.watermark_field, effective_watermark)
             ]
             result.staged_rows = len(staged_rows)
+            result.details["late_rows"] = sum(
+                1
+                for row in staged_rows
+                if asset.watermark_field
+                and watermark_before is not None
+                and not is_after_watermark(
+                    row,
+                    asset.watermark_field,
+                    watermark_before,
+                )
+            )
             self._write_staging(asset.name, staged_rows)
 
+            advance("quality")
+            key_columns = normalize_fields(asset.quality.unique_key)
             existing_keys = self._existing_keys(
-                target_table, normalize_fields(asset.quality.unique_key)
+                target_table,
+                key_columns,
             )
             publishable, quarantined = apply_quality_rules(
                 staged_rows,
                 asset,
-                existing_keys,
+                set() if asset.publish_mode == "upsert" else existing_keys,
             )
             self._write_quarantine(asset.name, run_id, quarantined)
             result.quarantined_rows = len(quarantined)
@@ -217,6 +278,7 @@ class DataAssetBuilder:
                     f"quality.max_invalid_ratio={asset.quality.max_invalid_ratio:.3f}"
                 )
 
+            advance("publish")
             current_columns = self._published_columns(target_table)
             if publishable or current_columns:
                 self._validate_semantic_columns(
@@ -228,19 +290,35 @@ class DataAssetBuilder:
                 target_table,
                 publishable,
                 asset.publish_mode,
+                key_columns,
             )
+            if asset.publish_mode == "upsert":
+                published_keys = {
+                    tuple(row[column] for column in key_columns)
+                    for row in publishable
+                }
+                result.details["updated_rows"] = len(published_keys & existing_keys)
+                result.details["inserted_rows"] = len(published_keys - existing_keys)
+            else:
+                result.details["updated_rows"] = 0
+                result.details["inserted_rows"] = result.published_rows
             result.watermark_after = max_watermark(
                 publishable, asset.watermark_field, watermark_before
             )
             if result.watermark_after is not None:
                 self._save_watermark(asset.name, result.watermark_after, run_id)
+            advance("semantic_catalog")
             self._upsert_semantic_catalog(asset, target_table)
+            advance(None)
+            record_timing()
             self._record_lineage(result, "success")
             return result
         except Exception as exc:
+            advance(None)
             result.status = "failed"
             result.error = str(exc)
             result.quarantined_rows = len(quarantined)
+            record_timing(stage_name)
             self._record_lineage(result, "failed")
             return result
 
@@ -388,6 +466,7 @@ class DataAssetBuilder:
         table: str,
         rows: list[dict[str, Any]],
         mode: str,
+        key_columns: list[str],
     ) -> int:
         if not rows:
             return 0
@@ -420,12 +499,47 @@ class DataAssetBuilder:
                         f"received {columns}"
                     )
             placeholders = ", ".join("?" for _ in columns)
-            connection.executemany(
+            insert_sql = (
                 f"INSERT INTO {_quote(table)} "
                 f"({', '.join(_quote(column) for column in columns)}) "
-                f"VALUES ({placeholders})",
+                f"VALUES ({placeholders})"
+            )
+            if mode == "upsert":
+                if not key_columns or not set(key_columns).issubset(columns):
+                    raise DataAssetError(
+                        "Upsert publication requires physical unique-key columns"
+                    )
+                index_name = normalize_identifier(
+                    f"uq_{table}_{'_'.join(key_columns)}"
+                )
+                connection.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {_quote(index_name)} "
+                    f"ON {_quote(table)} "
+                    f"({', '.join(_quote(column) for column in key_columns)})"
+                )
+                mutable_columns = [
+                    column for column in columns if column not in key_columns
+                ]
+                if mutable_columns:
+                    insert_sql += (
+                        f" ON CONFLICT ({', '.join(_quote(column) for column in key_columns)}) "
+                        "DO UPDATE SET "
+                        + ", ".join(
+                            f"{_quote(column)} = excluded.{_quote(column)}"
+                            for column in mutable_columns
+                        )
+                    )
+                else:
+                    insert_sql += (
+                        f" ON CONFLICT ({', '.join(_quote(column) for column in key_columns)}) "
+                        "DO NOTHING"
+                    )
+            connection.executemany(
+                insert_sql,
                 [[row[column] for column in columns] for row in rows],
             )
+            if mode == "upsert":
+                connection.execute("PRAGMA optimize")
         return len(rows)
 
     def _upsert_semantic_catalog(self, asset: DataAssetSpec, table: str) -> None:

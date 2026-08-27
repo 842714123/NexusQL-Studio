@@ -38,7 +38,7 @@ NexusQL 包含两条核心链路。数据工程链路使用 YAML 声明数据源
 
 分析侧以 `AgentService` 为统一入口，CLI、REST、MCP 与 Gateway 共用同一工作流。问题经过主题选择、日期解析、Schema Linking、技能选择和指标匹配，再生成一个或多个 SQL 候选。SQL 执行前通过 SQLGlot AST 策略，限制语句类型、表、列、函数和 LIMIT；执行使用 SQLite `mode=ro` 与 `PRAGMA query_only` 双重只读保护。执行后 Reflect 节点检查指标、粒度、日期、Join 和结果合理性，必要时在重试预算内局部修复、重新生成或要求人工确认。
 
-当前实现以本地 SQLite 为边界，重点是验证增量、质量、语义、安全和审计如何形成闭环。生产化时会将同步本地任务升级为队列与 Worker，增加 PostgreSQL 或湖仓适配器、复合 Watermark、回看窗口、Upsert、权限和监控。
+当前实现以本地 SQLite 为边界，重点是验证增量、质量、语义、安全和审计如何形成闭环。样例管道已经具有 SQLite 持久化异步状态机和单进程 Worker；生产化时仍要换成外部队列与横向扩展 Worker，并增加 PostgreSQL 或湖仓适配器、复合 Watermark、回看窗口、Upsert、权限和监控。
 
 ### 1.4 三个关键词
 
@@ -102,7 +102,8 @@ NexusQL 包含两条核心链路。数据工程链路使用 YAML 声明数据源
 - **[已实现]** CLI、REST、流式事件、MCP、Gateway 等接口。
 - **[已实现]** NexusQL Studio 与中英文页面。
 - **[演示实现]** 前端管道页面调用本地 `PipelineRuntime`，可演示正常、幂等和质量失败。
-- **[已实现]** Web 使用 D1 保存数据域、数据源元数据和查询运行，使用 R2 保存上传文件。
+- **[已实现]** Web 使用 D1 保存数据域、资产剖析、发布路径和查询运行，使用 R2 保存上传文件。
+- **[已实现]** Web 上传单个 CSV/Parquet 后调用 Python 资产构建服务，生成域级 SQLite、语义模型和 SQL 策略，并可在该域内发起真实查询。
 
 ### 3.2 当前没有实现
 
@@ -111,9 +112,9 @@ NexusQL 包含两条核心链路。数据工程链路使用 YAML 声明数据源
 - 没有 MySQL/PostgreSQL Source Adapter。
 - 没有 Spark/Flink 分布式计算。
 - 没有企业级多租户 RBAC、列级权限和审计留存策略。
-- 没有生产级调度器、任务队列和横向扩展 Worker。
+- 没有外部生产级调度器、跨进程任务队列和横向扩展 Worker；当前是可恢复的本地编排实现。
 - 没有分布式 Exactly Once 保证。
-- 新数据域可以创建和上传，但尚未自动注册为 Python 查询执行资源。
+- 当前自定义域发布仍以单文件同步请求为边界；样例管道已实现本地异步 Worker，但尚未实现多表 Join 建模和生产级分布式调度。
 - 部分前端指标、关系图和离线结果是产品演示数据，不代表任意文件都能自动推断完整业务语义。
 
 ### 3.3 最稳妥的边界表述
@@ -221,8 +222,9 @@ flowchart LR
 底层执行必须获得 YAML 或等价的 `AssetBuildConfig`，因为数据工程任务不能在缺少规则时靠猜测执行。但最终用户不必永远从空白文本写起：
 
 - **[已实现]** 脚本可以搭建资产配置和语义模型草稿；
-- **[演示实现]** Web 上传向导收集并提交完整语义合同；
-- **[生产化设想]** 自动探测 Schema、候选主键和统计信息，生成草案，再由 Owner 审核。
+- **[已实现]** Web 对真实 CSV/Parquet 行进行剖析，返回类型、空值率、基数、候选主键和 Watermark；
+- **[已实现]** Owner 审核语义与管道合同后，Web 调用 `DataAssetBuilder` 发布域级 SQLite、语义模型和 SQL 策略；
+- **[已实现]** 样例管道拥有 queued/running/终态、失败分类、重试祖先、排队取消和阶段耗时；**[生产化设想]** 将同一编排抽象推广到自定义多资产发布并使用外部 Worker。
 
 面试回答：
 
@@ -720,14 +722,16 @@ PRAGMA query_only = ON
 
 ### 14.3 Data Sources
 
-Web 上传允许 SQLite/DB、CSV、Parquet，单文件限制 25 MB；提交前必须选择 Domain，并发送完整、已审核的语义合同。
+Web 的可执行上传支持单个 CSV/Parquet，限制 25 MB；提交前必须选择 Domain，并发送已审核的语义合同与主键、Watermark、必填字段、最大无效率等管道合同。
 
 要准确区分：
 
-- Web 上传路由负责 R2 文件保存与 D1 元数据；
-- Python `DataAssetBuilder` 负责真正的数据标准化、质量和 SQLite 发布。
+- Profile API 读取真实数据，生成物理统计和保守草稿；
+- Web 上传路由负责 R2 文件保存并调用 Python 发布服务；
+- Python `DataAssetBuilder` 负责标准化、Staging、质量、Quarantine、Watermark、SQLite 和语义发布；
+- D1 保存返回的数据库、语义模型、SQL 策略、run_id、行数、Profile 和 Watermark。
 
-当前两者尚未对任意新域完全自动串联，所以不能声称“网页上传后立即可真实查询”。
+发布成功的新域会使用自己的可执行路径进入 NL2SQL，查询失败时不会替换成 Anime 样例结果。自定义域当前仍是同步单资产发布；异步状态机目前服务内置可执行管道，不应说成分布式调度平台。
 
 ### 14.4 Data Pipelines
 
@@ -739,7 +743,7 @@ POST /engineering/pipeline/run?scenario=standard
 POST /engineering/pipeline/run?scenario=quality_failure
 ```
 
-`PipelineRuntime` 汇总 Source、Staging、Quality、Publish、Watermark、Lineage、Quarantine 和最近运行；进程内非阻塞锁保证同一 API 进程一次只运行一个样例任务。
+`PipelineRuntime` 汇总 Source、Staging、Quality、Publish、Watermark、Lineage、Quarantine 和最近运行；`PipelineRunOrchestrator` 把任务状态持久化到 SQLite，单进程 Worker 串行执行，记录 attempt、retry_of、失败类型及排队/执行/阶段耗时。进程内锁仍是最终执行保护，不是跨实例锁。
 
 ### 14.5 Semantic Studio
 
@@ -976,29 +980,30 @@ FormData: domain_id + reviewed + semantic_contract + files
 
 ## 21. 当前最值得优化的内容
 
-### P0：打通新数据域的真实执行闭环
+### 已完成：新数据域的真实执行闭环
 
-当前新域可创建和上传，但真实问答仍使用内置样例路径。需要：
+当前新域上传会真实剖析文件、执行 `DataAssetBuilder`，并把 Published DB、
+Semantic Model 和 SQL Policy 路径保存到 Domain 数据源记录。`/ask` 使用这些
+域级资源，失败时不会回退到内置样例。
 
-1. 上传后创建异步数据资产任务；
-2. 将 Published DB 与 Semantic Model 注册到 Domain；
-3. `/ask` 根据 `domain_id` 在服务端解析资源；
-4. 后端校验域权限，不能相信前端；
-5. Run 关联数据版本与语义版本。
+仍需补充：自定义上传异步化、服务端 Domain 资源注册表、身份权限、数据版本
+与语义版本关联，以及多资产 Join Path 审核。
 
-这是最重要的优化，因为它把产品演示升级为多域可执行平台。
-
-### P0：异步 Run 状态机
+### 已完成基础版：异步 Run 状态机
 
 ```text
 API -> create run -> Queue -> Worker -> Stage Events -> Status API
 ```
 
-至少支持 Pending、Running、Succeeded、Failed、Cancelled，并包含心跳、超时、重试和并发控制。
+当前已支持 Queued、Running、Succeeded、Failed、Cancelled，SQLite 持久化、
+失败分类、人工重试、排队取消、重启恢复和阶段耗时。生产化仍需外部 Queue、
+Worker 心跳、租约超时、指数退避和跨实例并发控制。
 
-### P1：迟到数据与 Upsert
+### 已完成基础版：迟到数据与 Upsert
 
-增加复合 Watermark、Lookback Window、业务键 Upsert 和文件清单。
+当前支持 ISO 时间 Watermark 的有界 Lookback Window、业务键唯一索引和
+SQLite Upsert，并记录 late/insert/update 行数。下一步增加复合 Watermark、
+Source 谓词下推、文件清单和 PostgreSQL/湖仓 MERGE。
 
 ### P1：PostgreSQL / DuckDB Adapter
 
@@ -1142,7 +1147,7 @@ SQLGlot AST 限制类型、表列函数和 LIMIT；再校验 Join；最后用 SQ
 
 ### Q20：当前最大不足是什么？
 
-新域上传、Python 资产构建和真实查询尚未完全自动串联；管道也是同步本地运行。优先补 Domain 资源注册、异步状态机与数据库 Adapter。
+新域的单文件上传、Python 资产构建与真实查询已经串联，样例管道完成本地异步状态机，资产管道也支持有界 Lookback 与 Upsert；当前最大不足是自定义上传仍同步、单资产建模、单进程 Worker 和 SQLite 边界。优先补数据库 Adapter、外部队列、多表关系审核与复合游标。
 
 ### Q21：两个任务同时运行怎么办？
 
@@ -1182,7 +1187,7 @@ SQLGlot AST 限制类型、表列函数和 LIMIT；再校验 Join；最后用 SQ
 
 ### Q30：重做一次先改什么？
 
-先拆前端和 Domain 资源解析，再做异步 Run 状态机，然后实现 PostgreSQL Adapter、复合 Watermark 与 Upsert，最后补 E2E 和故障注入。
+当前已完成 Domain 资源解析和本地异步 Run 状态机；下一步拆分前端组件，实现 PostgreSQL Adapter、外部 Worker、复合 Watermark 与 Upsert，最后补 E2E 和故障注入。
 
 ---
 
@@ -1210,7 +1215,7 @@ SQLGlot AST 限制类型、表列函数和 LIMIT；再校验 Join；最后用 SQ
 
 ### API 503 但任务可能已完成
 
-当前同步接口存在响应状态不确定性。生产应先返回 Run ID，后台执行，客户端按 ID 查询最终状态，并用幂等键避免重复创建。
+样例管道现在先返回 Run ID，由后台执行并由客户端按 ID 查询终态；仍需为创建请求增加幂等键，并把这一模式推广到自定义资产发布和外部 Worker。
 
 ## 25. 白板绘图与讲解顺序
 

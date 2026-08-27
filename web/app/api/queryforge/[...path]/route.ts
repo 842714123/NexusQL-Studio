@@ -7,11 +7,23 @@ const ALLOWED_PATHS = new Set([
   "plan",
   "engineering/pipeline/status",
   "engineering/pipeline/run",
+  "engineering/pipeline/runs",
+  "engineering/assets/profile",
+  "engineering/assets/publish",
 ]);
+
+function isAllowedPath(path: string) {
+  return (
+    ALLOWED_PATHS.has(path) ||
+    /^engineering\/pipeline\/runs\/pipeline_[a-f0-9]{32}(?:\/(?:retry|cancel))?$/.test(
+      path,
+    )
+  );
+}
 
 function backendUrl(parts: string[]) {
   const path = parts.join("/");
-  if (!ALLOWED_PATHS.has(path)) {
+  if (!isAllowedPath(path)) {
     throw new Error("Unsupported NexusQL API route.");
   }
   const base = (

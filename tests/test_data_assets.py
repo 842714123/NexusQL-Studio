@@ -213,6 +213,88 @@ class DataAssetBuilderTest(unittest.TestCase):
         self.assertIn("page=1", urlopen.call_args_list[0].args[0].full_url)
         self.assertIn("page=2", urlopen.call_args_list[1].args[0].full_url)
 
+    def test_lookback_upsert_replays_late_rows_and_corrects_existing_keys(self):
+        events = self.root / "late_events.csv"
+        events.write_text(
+            "id,occurred_at,value\n1,2024-01-02,10\n2,2024-01-03,20\n",
+            encoding="utf-8",
+        )
+        config = AssetBuildConfig.model_validate(
+            {
+                "semantic_model": {
+                    "name": "late_events",
+                    "description": "Reviewed late event semantics.",
+                    "owner": "analytics",
+                    "reviewed": True,
+                },
+                "assets": [
+                    {
+                        "name": "late_events",
+                        "source": {"type": "csv", "path": str(events)},
+                        "watermark_field": "occurred_at",
+                        "watermark_lookback_seconds": 172800,
+                        "publish_mode": "upsert",
+                        "quality": {
+                            "required_columns": ["id", "occurred_at"],
+                            "unique_key": ["id"],
+                        },
+                        "semantic": {
+                            "entity_name": "late_events",
+                            "entity_type": "fact",
+                            "description": "One row per corrected business event.",
+                            "grain": ["id"],
+                            "dimensions": ["id", "occurred_at", "value"],
+                            "owner": "analytics",
+                        },
+                    }
+                ],
+            }
+        )
+        builder = DataAssetBuilder(self.publish_database, self.state_root)
+        semantic_path = self.root / "late_semantic.yml"
+
+        [first] = builder.build_all(config, semantic_path)
+        self.assertEqual(first.status, "success")
+        self.assertEqual(first.watermark_after, "2024-01-03")
+        self.assertEqual(first.details["inserted_rows"], 2)
+
+        events.write_text(
+            "id,occurred_at,value\n"
+            "1,2024-01-02,15\n"
+            "2,2024-01-03,20\n"
+            "3,2024-01-04,30\n"
+            "4,2024-01-01,40\n",
+            encoding="utf-8",
+        )
+        [second] = builder.build_all(config, semantic_path)
+
+        self.assertEqual(second.status, "success")
+        self.assertEqual(second.staged_rows, 3)
+        self.assertEqual(second.details["late_rows"], 2)
+        self.assertEqual(second.details["updated_rows"], 2)
+        self.assertEqual(second.details["inserted_rows"], 1)
+        self.assertEqual(second.watermark_before, "2024-01-03")
+        self.assertEqual(second.watermark_after, "2024-01-04")
+        with sqlite_connection(self.publish_database) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT id, value FROM late_events ORDER BY id"
+                ).fetchall(),
+                [(1, 15), (2, 20), (3, 30)],
+            )
+            indexes = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_schema WHERE type = 'index'"
+                )
+            }
+            plan = connection.execute(
+                "EXPLAIN QUERY PLAN SELECT value FROM late_events WHERE id = ?",
+                (1,),
+            ).fetchall()
+        self.assertIn("uq_late_events_id", indexes)
+        self.assertTrue(any("USING INDEX uq_late_events_id" in str(row[3]) for row in plan))
+
     def test_semantic_contract_failure_blocks_generated_model_publication(self):
         prices = self.root / "prices.csv"
         prices.write_text(

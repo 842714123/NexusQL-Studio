@@ -51,8 +51,15 @@ export async function ensureStudioSchema(db: D1Database) {
         table_count INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'ready',
         semantic_json TEXT NOT NULL,
+        profile_json TEXT NOT NULL DEFAULT '{}',
         reviewed INTEGER NOT NULL DEFAULT 0,
         contract_status TEXT NOT NULL DEFAULT 'pending',
+        database_path TEXT NOT NULL DEFAULT '',
+        semantic_model_path TEXT NOT NULL DEFAULT '',
+        sql_policy_path TEXT NOT NULL DEFAULT '',
+        pipeline_run_id TEXT NOT NULL DEFAULT '',
+        row_count INTEGER NOT NULL DEFAULT 0,
+        watermark TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `),
@@ -76,6 +83,48 @@ export async function ensureStudioSchema(db: D1Database) {
     "domain_id",
     `ALTER TABLE studio_sources
      ADD COLUMN domain_id TEXT NOT NULL DEFAULT '${SAMPLE_DOMAIN_ID}'`,
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "profile_json",
+    "ALTER TABLE studio_sources ADD COLUMN profile_json TEXT NOT NULL DEFAULT '{}'",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "database_path",
+    "ALTER TABLE studio_sources ADD COLUMN database_path TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "semantic_model_path",
+    "ALTER TABLE studio_sources ADD COLUMN semantic_model_path TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "sql_policy_path",
+    "ALTER TABLE studio_sources ADD COLUMN sql_policy_path TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "pipeline_run_id",
+    "ALTER TABLE studio_sources ADD COLUMN pipeline_run_id TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "row_count",
+    "ALTER TABLE studio_sources ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0",
+  );
+  await ensureColumn(
+    db,
+    "studio_sources",
+    "watermark",
+    "ALTER TABLE studio_sources ADD COLUMN watermark TEXT NOT NULL DEFAULT ''",
   );
   await ensureColumn(
     db,

@@ -77,7 +77,12 @@ type UploadedSource = {
   size: string;
   tables: number;
   rows: string;
-  status: "Ready" | "Draft";
+  status: "Published" | "Draft";
+  databasePath: string;
+  semanticModelPath: string;
+  sqlPolicyPath: string;
+  pipelineRunId: string;
+  watermark: string;
 };
 
 type DataDomain = {
@@ -106,6 +111,53 @@ type SemanticDraft = {
     aggregation: "count" | "sum";
     expression: string;
   }>;
+};
+
+type PipelineDraft = {
+  watermarkField: string;
+  watermarkLookbackSeconds: number;
+  requiredColumns: string[];
+  uniqueKey: string[];
+  maxInvalidRatio: number;
+  publishMode: "append" | "upsert";
+};
+
+type AssetProfile = {
+  file_name: string;
+  source_type: string;
+  row_count: number;
+  sampled_rows: number;
+  column_count: number;
+  candidate_primary_key: string;
+  candidate_watermark: string | null;
+  recommended_entity: string;
+  recommended_required_columns: string[];
+  recommended_dimensions: string[];
+  recommended_metrics: SemanticDraft["metrics"];
+  quality_warnings: string[];
+  columns: Array<{
+    source_name: string;
+    name: string;
+    data_type: string;
+    null_count: number;
+    null_rate: number;
+    distinct_count: number;
+    distinct_rate: number;
+    sample_values: unknown[];
+  }>;
+  preview: Array<Record<string, unknown>>;
+};
+
+type PublishedStudioSource = {
+  id: string;
+  publication?: {
+    database_path?: string;
+    semantic_model_path?: string;
+    sql_policy_path?: string;
+    run_id?: string;
+    published_rows?: number;
+    watermark_after?: string | null;
+  };
 };
 
 type PipelineRun = {
@@ -150,6 +202,34 @@ type PipelineStatus = {
   recent_runs: PipelineRun[];
 };
 
+type PipelineOperation = {
+  run_id: string;
+  scenario: "standard" | "quality_failure";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  attempt: number;
+  retry_of: string | null;
+  retryable: boolean;
+  error_type: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  queue_delay_ms: number | null;
+  execution_duration_ms: number | null;
+  result: {
+    status: string;
+    pipeline: PipelineStatus;
+    results: Array<{
+      details?: {
+        stage_durations_ms?: Record<string, number>;
+        semantic_publication_ms?: number;
+        batch_duration_ms?: number;
+        failed_stage?: string;
+      };
+    }>;
+  } | null;
+};
+
 const SAMPLE_DOMAIN_ID = "domain_anime_streaming";
 
 const INITIAL_SEMANTIC_DRAFT: SemanticDraft = {
@@ -174,6 +254,15 @@ const INITIAL_SEMANTIC_DRAFT: SemanticDraft = {
       expression: "SUM(amount)",
     },
   ],
+};
+
+const INITIAL_PIPELINE_DRAFT: PipelineDraft = {
+  watermarkField: "",
+  watermarkLookbackSeconds: 0,
+  requiredColumns: ["record_id"],
+  uniqueKey: ["record_id"],
+  maxInvalidRatio: 0.05,
+  publishMode: "upsert",
 };
 
 const NAV_ITEMS: Array<{
@@ -746,6 +835,20 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function fileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("File reading failed"));
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const marker = result.indexOf(",");
+      if (marker < 0) reject(new Error("File encoding failed"));
+      else resolve(result.slice(marker + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function Icon({ value }: { value: string }) {
   return (
     <span className="icon-glyph" aria-hidden="true">
@@ -803,10 +906,14 @@ export default function Home() {
   const [uploadStep, setUploadStep] = useState(1);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [isProfiling, setIsProfiling] = useState(false);
+  const [assetProfile, setAssetProfile] = useState<AssetProfile | null>(null);
   const [semanticReviewed, setSemanticReviewed] = useState(false);
   const [semanticValidated, setSemanticValidated] = useState(false);
   const [semanticDraft, setSemanticDraft] = useState<SemanticDraft>(
     INITIAL_SEMANTIC_DRAFT,
+  );
+  const [pipelineDraft, setPipelineDraft] = useState<PipelineDraft>(
+    INITIAL_PIPELINE_DRAFT,
   );
   const [uploadedSources, setUploadedSources] = useState<UploadedSource[]>([]);
   const [runFilter, setRunFilter] = useState<"All" | "Passed" | "Blocked">(
@@ -907,8 +1014,16 @@ export default function Home() {
           type: String(source.source_type ?? "DATA"),
           size: formatBytes(Number(source.size_bytes ?? 0)),
           tables: Number(source.table_count ?? 1),
-          rows: "Profiled",
-          status: "Ready" as const,
+          rows: String(source.row_count ?? 0),
+          status:
+            String(source.status) === "published"
+              ? ("Published" as const)
+              : ("Draft" as const),
+          databasePath: String(source.database_path ?? ""),
+          semanticModelPath: String(source.semantic_model_path ?? ""),
+          sqlPolicyPath: String(source.sql_policy_path ?? ""),
+          pipelineRunId: String(source.pipeline_run_id ?? ""),
+          watermark: String(source.watermark ?? ""),
         }));
         if (persisted.length) setUploadedSources(persisted);
       })
@@ -974,6 +1089,12 @@ export default function Home() {
   const activeDomainSources = uploadedSources.filter(
     (source) => source.domainId === activeDomain.id,
   );
+  const executableDomainSource = activeDomainSources.find(
+    (source) =>
+      source.status === "Published" &&
+      source.databasePath &&
+      source.semanticModelPath,
+  );
   const activeDomainRuns = runs.filter(
     (run) => run.domainId === activeDomain.id,
   );
@@ -981,11 +1102,11 @@ export default function Home() {
   async function runQuery(nextQuestion?: string) {
     const submitted = (nextQuestion ?? query).trim();
     if (!submitted || isRunning) return;
-    if (!activeDomain.isSample) {
+    if (!activeDomain.isSample && !executableDomainSource) {
       setActiveView("ask");
       setToast(
         activeDomainSources.length
-          ? text("Publish an executable connector for this domain before running analysis.", "请先为当前数据域发布可执行连接器，再运行分析。")
+          ? text("This domain has no successfully published executable asset.", "当前数据域还没有成功发布的可执行数据资产。")
           : text("Upload data and publish its semantic contract before running analysis.", "请先上传数据并发布语义契约，再运行分析。"),
       );
       return;
@@ -1008,12 +1129,17 @@ export default function Home() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             question: submitted,
-            database:
-              "sample_data/anime_streaming/anime_streaming.sqlite",
+            database: activeDomain.isSample
+              ? "sample_data/anime_streaming/anime_streaming.sqlite"
+              : executableDomainSource?.databasePath,
             semantic_model_path:
-              "sample_data/anime_streaming/semantic_model.yml",
+              activeDomain.isSample
+                ? "sample_data/anime_streaming/semantic_model.yml"
+                : executableDomainSource?.semanticModelPath,
             sql_policy_path:
-              "sample_data/anime_streaming/sql_policy.yml",
+              activeDomain.isSample
+                ? "sample_data/anime_streaming/sql_policy.yml"
+                : executableDomainSource?.sqlPolicyPath,
             visualize: true,
             report: true,
             complexity_mode: "auto",
@@ -1024,6 +1150,12 @@ export default function Home() {
         }
         nextResult = normalizeQueryResult(await response.json());
       } catch {
+        if (!activeDomain.isSample) {
+          setIsRunning(false);
+          setRunStage(0);
+          setToast(text("The governed query failed; no sample result was substituted.", "受治理查询失败，系统没有用样例结果替代真实结果。"));
+          return;
+        }
         setConnection("demo");
         setToast(text("Live backend unavailable — continued with demo evidence.", "实时后端不可用，已切换为演示证据。"));
       }
@@ -1098,9 +1230,10 @@ export default function Home() {
   }
 
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
+    const files = Array.from(event.target.files ?? []).slice(0, 1);
     if (!files.length) return;
     setUploadFiles(files);
+    setAssetProfile(null);
     setSemanticReviewed(false);
     setSemanticValidated(false);
     setSemanticDraft({
@@ -1108,14 +1241,53 @@ export default function Home() {
       description: `One governed business record represented by data uploaded to ${activeDomain.name}.`,
       owner: activeDomain.owner,
     });
+    setPipelineDraft(INITIAL_PIPELINE_DRAFT);
   }
 
   async function profileFiles() {
     if (!uploadFiles.length) return;
     setIsProfiling(true);
-    await sleep(900);
-    setIsProfiling(false);
-    setUploadStep(2);
+    try {
+      const file = uploadFiles[0];
+      const response = await fetch("/api/queryforge/engineering/assets/profile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          file: { name: file.name, content_base64: await fileAsBase64(file) },
+        }),
+      });
+      const payload = (await response.json()) as AssetProfile & { detail?: string };
+      if (!response.ok) throw new Error(payload.detail || "Profiling failed");
+      setAssetProfile(payload);
+      setSemanticDraft({
+        entity: payload.recommended_entity,
+        description: `One governed ${payload.recommended_entity} record published in ${activeDomain.name}.`,
+        owner: activeDomain.owner,
+        grain: payload.candidate_primary_key,
+        primaryKey: payload.candidate_primary_key,
+        sensitivity: "internal",
+        dimensions: payload.recommended_dimensions,
+        metrics: payload.recommended_metrics,
+      });
+      setPipelineDraft({
+        watermarkField: payload.candidate_watermark ?? "",
+        watermarkLookbackSeconds: 0,
+        requiredColumns: payload.recommended_required_columns,
+        uniqueKey: [payload.candidate_primary_key],
+        maxInvalidRatio: 0.05,
+        publishMode: "upsert",
+      });
+      setUploadStep(2);
+      setToast(text("Physical profiling completed from the uploaded rows.", "已根据上传数据完成真实物理剖析。"));
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : text("Physical profiling failed.", "物理剖析失败。"),
+      );
+    } finally {
+      setIsProfiling(false);
+    }
   }
 
   async function validateUploadSemantic() {
@@ -1133,7 +1305,19 @@ export default function Home() {
         (metric) =>
           metric.name && metric.description && metric.expression,
       );
-    if (requiredFields.some((value) => !value.trim()) || !metricsValid) {
+    const pipelineValid =
+      assetProfile !== null &&
+      pipelineDraft.requiredColumns.length > 0 &&
+      pipelineDraft.uniqueKey.length > 0 &&
+      pipelineDraft.maxInvalidRatio >= 0 &&
+      pipelineDraft.maxInvalidRatio <= 1 &&
+      pipelineDraft.watermarkLookbackSeconds >= 0 &&
+      (!pipelineDraft.watermarkLookbackSeconds || Boolean(pipelineDraft.watermarkField));
+    if (
+      requiredFields.some((value) => !value.trim()) ||
+      !metricsValid ||
+      !pipelineValid
+    ) {
       setSemanticValidated(false);
       setToast(text("Complete the entity, grain, owner, and metric contract first.", "请先完善实体、粒度、负责人和指标契约。"));
       return;
@@ -1144,7 +1328,13 @@ export default function Home() {
   }
 
   async function publishUpload() {
-    if (!semanticReviewed || !semanticValidated || !uploadFiles.length) return;
+    if (
+      !semanticReviewed ||
+      !semanticValidated ||
+      !uploadFiles.length ||
+      !assetProfile
+    )
+      return;
     const totalBytes = uploadFiles.reduce((sum, file) => sum + file.size, 0);
     const payload = new FormData();
     uploadFiles.forEach((file) => payload.append("files", file));
@@ -1158,34 +1348,53 @@ export default function Home() {
         version: 1,
       }),
     );
+    payload.append("pipeline_contract", JSON.stringify(pipelineDraft));
 
-    let persisted = false;
+    setIsProfiling(true);
+    let persistedSource: PublishedStudioSource | null = null;
     try {
       const response = await fetch("/api/studio/upload", {
         method: "POST",
         body: payload,
       });
-      persisted = response.ok;
-    } catch {
-      persisted = false;
+      const body = (await response.json()) as {
+        source?: PublishedStudioSource;
+        detail?: string;
+      };
+      if (!response.ok || !body.source) {
+        throw new Error(body.detail || "Publication failed");
+      }
+      persistedSource = body.source;
+    } catch (error) {
+      setIsProfiling(false);
+      setToast(
+        error instanceof Error
+          ? error.message
+          : text("Publication failed.", "发布失败。"),
+      );
+      return;
     }
+    if (!persistedSource) return;
 
     setUploadedSources((current) => [
       {
-        id: crypto.randomUUID(),
+        id: persistedSource.id,
         domainId: activeDomain.id,
-        name:
-          uploadFiles.length === 1
-            ? uploadFiles[0].name
-            : `${uploadFiles[0].name} + ${uploadFiles.length - 1}`,
+        name: uploadFiles[0].name,
         type: uploadFiles
           .map((file) => file.name.split(".").pop()?.toUpperCase() ?? "FILE")
           .filter((value, index, list) => list.indexOf(value) === index)
           .join(" · "),
         size: formatBytes(totalBytes),
         tables: uploadFiles.length,
-        rows: "Profiled",
-        status: "Ready",
+        rows: String(persistedSource.publication?.published_rows ?? 0),
+        status: "Published",
+        databasePath: persistedSource.publication?.database_path ?? "",
+        semanticModelPath:
+          persistedSource.publication?.semantic_model_path ?? "",
+        sqlPolicyPath: persistedSource.publication?.sql_policy_path ?? "",
+        pipelineRunId: persistedSource.publication?.run_id ?? "",
+        watermark: persistedSource.publication?.watermark_after ?? "",
       },
       ...current,
     ]);
@@ -1203,13 +1412,11 @@ export default function Home() {
     setUploadOpen(false);
     setUploadStep(1);
     setUploadFiles([]);
+    setAssetProfile(null);
     setSemanticReviewed(false);
     setSemanticValidated(false);
-    setToast(
-      persisted
-        ? text("Data and semantic model published atomically.", "数据与语义模型已原子发布。")
-        : text("Demo source published locally with its semantic contract.", "演示数据源及其语义契约已在本地发布。"),
-    );
+    setIsProfiling(false);
+    setToast(text("Source, data asset, semantic model, and query connector were published.", "数据源、数据资产、语义模型和查询连接已完成真实发布。"));
   }
 
   function selectRun(run: RunRecord) {
@@ -1568,15 +1775,19 @@ export default function Home() {
           step={uploadStep}
           files={uploadFiles}
           isProfiling={isProfiling}
+          profile={assetProfile}
           reviewed={semanticReviewed}
           validated={semanticValidated}
           semanticDraft={semanticDraft}
           setSemanticDraft={setSemanticDraft}
+          pipelineDraft={pipelineDraft}
+          setPipelineDraft={setPipelineDraft}
           resetValidation={() => setSemanticValidated(false)}
           fileInputRef={fileInputRef}
           close={() => {
             setUploadOpen(false);
             setUploadStep(1);
+            setAssetProfile(null);
           }}
           handleFiles={handleFiles}
           profileFiles={profileFiles}
@@ -2264,7 +2475,8 @@ function SourcesView({
                 <div>
                   <strong>{source.name}</strong>
                   <span>
-                    {source.type} · {source.size}
+                    {source.type} · {source.size} · {source.rows} {text("rows", "行")}
+                    {source.watermark ? ` · WM ${source.watermark}` : ""}
                   </span>
                 </div>
                 <span className="status-pill success">{source.status}</span>
@@ -2375,6 +2587,18 @@ function PipelinesView({
   const [isChecking, setIsChecking] = useState(false);
   const [pipeline, setPipeline] = useState<PipelineStatus | null>(null);
   const [pipelineError, setPipelineError] = useState("");
+  const [operation, setOperation] = useState<PipelineOperation | null>(null);
+  const [operations, setOperations] = useState<PipelineOperation[]>([]);
+
+  const loadOperationHistory = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch(
+      "/api/queryforge/engineering/pipeline/runs?limit=12",
+      { signal },
+    );
+    if (!response.ok) throw new Error("Pipeline operation history unavailable");
+    const payload = (await response.json()) as { runs: PipelineOperation[] };
+    setOperations(payload.runs);
+  }, []);
 
   useEffect(() => {
     if (!domain.isSample) {
@@ -2401,37 +2625,123 @@ function PipelinesView({
           ),
         );
       });
+    void loadOperationHistory(controller.signal).catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+    });
     return () => controller.abort();
-  }, [domain.id, domain.isSample, text]);
+  }, [domain.id, domain.isSample, loadOperationHistory, text]);
+
+  useEffect(() => {
+    if (!operation) return;
+    if (["succeeded", "failed", "cancelled"].includes(operation.status)) {
+      setIsChecking(false);
+      if (operation.result?.pipeline) setPipeline(operation.result.pipeline);
+      if (operation.status === "failed") {
+        setPipelineError(
+          operation.error_type === "data_quality_error"
+            ? text(
+                "Data-quality gates blocked publication. Inspect the failed stage and Quarantine evidence below.",
+                "数据质量门禁阻止了发布，请检查下方失败阶段和 Quarantine 证据。",
+              )
+            : operation.error_message ||
+                text("Pipeline execution failed.", "数据管道执行失败。"),
+        );
+      } else if (operation.status === "cancelled") {
+        setPipelineError(text("Queued run cancelled.", "排队任务已取消。"));
+      } else {
+        setPipelineError("");
+      }
+      void loadOperationHistory();
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch(`/api/queryforge/engineering/pipeline/runs/${operation.run_id}`, {
+        signal: controller.signal,
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("Pipeline operation unavailable");
+          return response.json() as Promise<PipelineOperation>;
+        })
+        .then(setOperation)
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setIsChecking(false);
+          setPipelineError(
+            text(
+              "Pipeline polling failed. The durable run can still be recovered from history.",
+              "管道状态轮询失败，仍可从持久化运行历史中恢复该任务。",
+            ),
+          );
+        });
+    }, 350);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [loadOperationHistory, operation, text]);
 
   async function runPipelineCheck(scenario: "standard" | "quality_failure" = "standard") {
     if (isChecking || !hasSources || !domain.isSample) return;
     setIsChecking(true);
     setPipelineError("");
     try {
-      const response = await fetch(`/api/queryforge/engineering/pipeline/run?scenario=${scenario}`, {
+      const response = await fetch("/api/queryforge/engineering/pipeline/runs", {
         method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scenario }),
       });
-      if (!response.ok) throw new Error("Pipeline run failed");
-      const payload = (await response.json()) as {
-        status: string;
-        pipeline: PipelineStatus;
-      };
-      setPipeline(payload.pipeline);
-      if (payload.status !== "success") {
-        setPipelineError(text("Pipeline quality gates blocked publication.", "管道质量门禁阻止了发布。"));
-      }
+      if (!response.ok) throw new Error("Pipeline run submission failed");
+      setOperation((await response.json()) as PipelineOperation);
     } catch {
-      setPipelineError(text("Pipeline execution failed. Inspect the backend log for details.", "管道执行失败，请检查后端日志。"));
-    } finally {
       setIsChecking(false);
+      setPipelineError(text("Pipeline execution failed. Inspect the backend log for details.", "管道执行失败，请检查后端日志。"));
     }
+  }
+
+  async function retryOperation() {
+    if (!operation || operation.status !== "failed") return;
+    setIsChecking(true);
+    setPipelineError("");
+    const response = await fetch(
+      `/api/queryforge/engineering/pipeline/runs/${operation.run_id}/retry`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      setIsChecking(false);
+      setPipelineError(text("Retry request was rejected.", "重试请求被拒绝。"));
+      return;
+    }
+    setOperation((await response.json()) as PipelineOperation);
+  }
+
+  async function cancelOperation() {
+    if (!operation || operation.status !== "queued") return;
+    const response = await fetch(
+      `/api/queryforge/engineering/pipeline/runs/${operation.run_id}/cancel`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      setPipelineError(
+        text(
+          "The worker already started; running jobs are not force-killed because publication must remain atomic.",
+          "Worker 已经开始执行；为保证原子发布，运行中的任务不会被强制终止。",
+        ),
+      );
+      return;
+    }
+    setOperation((await response.json()) as PipelineOperation);
   }
 
   const quality = pipeline?.quality;
   const lastRun = pipeline?.last_run;
   const canRun = domain.isSample && hasSources;
   const watermark = pipeline?.watermark?.value ?? text("Not initialized", "尚未初始化");
+  const stageTimings =
+    operation?.result?.results?.[0]?.details?.stage_durations_ms ?? {};
+  const formatDuration = (value: number | null | undefined) =>
+    value == null ? "—" : value < 1000 ? `${value.toFixed(1)} ms` : `${(value / 1000).toFixed(2)} s`;
 
   return (
     <div className="page pipelines-page">
@@ -2444,6 +2754,16 @@ function PipelinesView({
         )}
         action={
           <div className="pipeline-actions">
+            {operation?.status === "queued" && (
+              <button className="secondary-button" onClick={() => void cancelOperation()}>
+                {text("Cancel queued run", "取消排队任务")}
+              </button>
+            )}
+            {operation?.status === "failed" && (
+              <button className="secondary-button" onClick={() => void retryOperation()}>
+                {text("↻ Retry as attempt", "↻ 创建重试任务")} {operation.attempt + 1}
+              </button>
+            )}
             <button
               className="secondary-button pipeline-failure-button"
               onClick={() => void runPipelineCheck("quality_failure")}
@@ -2463,6 +2783,24 @@ function PipelinesView({
           </div>
         }
       />
+
+      {operation && (
+        <section className={cn("pipeline-operation-strip", operation.status)} aria-live="polite">
+          <div>
+            <span className="panel-kicker">{text("DURABLE ORCHESTRATION RUN", "持久化编排任务")}</span>
+            <strong>{operation.run_id}</strong>
+          </div>
+          <dl>
+            <div><dt>{text("State", "状态")}</dt><dd>{operation.status.toUpperCase()}</dd></div>
+            <div><dt>{text("Attempt", "尝试次数")}</dt><dd>{operation.attempt}</dd></div>
+            <div><dt>{text("Queue delay", "排队耗时")}</dt><dd>{formatDuration(operation.queue_delay_ms)}</dd></div>
+            <div><dt>{text("Execution", "执行耗时")}</dt><dd>{formatDuration(operation.execution_duration_ms)}</dd></div>
+          </dl>
+          {operation.error_type && (
+            <code>{operation.error_type}{operation.result?.results?.[0]?.details?.failed_stage ? ` · ${operation.result.results[0].details.failed_stage}` : ""}</code>
+          )}
+        </section>
+      )}
 
       {pipelineError && (
         <div className="pipeline-error-banner" role="alert">
@@ -2508,14 +2846,14 @@ function PipelinesView({
                   <span className="panel-kicker">{text("PIPELINE DAG", "管道 DAG")}</span>
                   <h2>{text("Governed asset publication", "受治理数据资产发布")}</h2>
                 </div>
-                <span className={cn("status-pill", quality?.passed ? "success" : "neutral")}>{isChecking ? text("RUNNING", "运行中") : quality?.passed ? text("HEALTHY", "健康") : text("READY", "就绪")}</span>
+                <span className={cn("status-pill", operation?.status === "failed" ? "failed" : quality?.passed ? "success" : "neutral")}>{isChecking ? (operation?.status === "queued" ? text("QUEUED", "排队中") : text("RUNNING", "运行中")) : quality?.passed ? text("HEALTHY", "健康") : text("READY", "就绪")}</span>
               </div>
               <div className={cn("pipeline-dag", isChecking && "is-running")}>
                 {[
-                  ["01", text("Extract", "抽取"), pipeline?.lineage.source ?? text("CSV source", "CSV 数据源"), String(lastRun?.input_rows ?? pipeline?.source_rows ?? 0)],
-                  ["02", text("Validate", "校验"), text("Schema + quality", "结构与质量"), quality?.checks_total ? `${quality.checks_passed}/${quality.checks_total}` : "—"],
-                  ["03", text("Transform", "转换"), pipeline?.lineage.staging ?? text("Staging table", "暂存表"), String(lastRun?.staged_rows ?? 0)],
-                  ["04", text("Publish", "发布"), pipeline?.lineage.target ?? text("Target table", "目标表"), String(lastRun?.published_rows ?? 0)],
+                  ["01", text("Extract", "抽取"), pipeline?.lineage.source ?? text("CSV source", "CSV 数据源"), `${lastRun?.input_rows ?? pipeline?.source_rows ?? 0} rows · ${formatDuration(stageTimings.extract)}`],
+                  ["02", text("Validate", "校验"), text("Schema + quality", "结构与质量"), `${quality?.checks_total ? `${quality.checks_passed}/${quality.checks_total}` : "—"} · ${formatDuration(stageTimings.quality)}`],
+                  ["03", text("Transform", "转换"), pipeline?.lineage.staging ?? text("Staging table", "暂存表"), `${lastRun?.staged_rows ?? 0} rows · ${formatDuration(stageTimings.normalize_and_stage)}`],
+                  ["04", text("Publish", "发布"), pipeline?.lineage.target ?? text("Target table", "目标表"), `${lastRun?.published_rows ?? 0} rows · ${formatDuration(stageTimings.publish)}`],
                 ].map(([index, label, detail, value], itemIndex) => (
                   <div className="pipeline-dag-stage" key={index}>
                     <span>{index}</span>
@@ -2552,6 +2890,8 @@ function PipelinesView({
                 <div><dt>{text("Rows staged", "暂存行数")}</dt><dd>{lastRun?.staged_rows ?? 0}</dd></div>
                 <div><dt>{text("Rows published", "发布行数")}</dt><dd>{lastRun?.published_rows ?? 0}</dd></div>
                 <div><dt>{text("Rows quarantined", "隔离行数")}</dt><dd>{lastRun?.quarantined_rows ?? 0}</dd></div>
+                <div><dt>{text("Semantic validation", "语义发布校验")}</dt><dd>{formatDuration(operation?.result?.results?.[0]?.details?.semantic_publication_ms)}</dd></div>
+                <div><dt>{text("Atomic batch", "原子批次总耗时")}</dt><dd>{formatDuration(operation?.result?.results?.[0]?.details?.batch_duration_ms)}</dd></div>
               </dl>
               <div className="pipeline-sla-bar"><span style={{ width: quality?.passed ? "100%" : "18%" }} /></div>
               <small>{quality?.passed ? text("All persisted quality gates passed", "全部持久化质量门禁已通过") : text("Run the pipeline to collect quality evidence", "运行管道以采集质量证据")}</small>
@@ -2597,6 +2937,31 @@ function PipelinesView({
                       <div><dt>{text("quarantined", "隔离")}</dt><dd>{run.quarantined_rows}</dd></div>
                     </dl>
                     <code>{run.watermark_before ?? "∅"} → {run.watermark_after ?? "∅"}</code>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+          {operations.length > 0 && (
+            <section className="panel pipeline-history-panel">
+              <div className="panel-heading">
+                <div>
+                  <span className="panel-kicker">{text("ORCHESTRATION HISTORY", "任务编排历史")}</span>
+                  <h2>{text("Queued, running, retry, and terminal evidence", "排队、运行、重试与终态证据")}</h2>
+                </div>
+                <span className="status-pill neutral">{operations.length} {text("durable tasks", "个持久化任务")}</span>
+              </div>
+              <div className="pipeline-operation-history">
+                {operations.map((item) => (
+                  <article key={item.run_id}>
+                    <span className={cn("pipeline-run-state", item.status === "succeeded" ? "success" : item.status === "failed" ? "failed" : "neutral")}>{item.status.toUpperCase()}</span>
+                    <div><strong>{item.run_id.slice(0, 24)}…</strong><small>{new Date(item.created_at).toLocaleString()}</small></div>
+                    <dl>
+                      <div><dt>{text("attempt", "尝试")}</dt><dd>{item.attempt}</dd></div>
+                      <div><dt>{text("queue", "排队")}</dt><dd>{formatDuration(item.queue_delay_ms)}</dd></div>
+                      <div><dt>{text("runtime", "执行")}</dt><dd>{formatDuration(item.execution_duration_ms)}</dd></div>
+                    </dl>
+                    <code>{item.error_type ?? item.scenario}</code>
                   </article>
                 ))}
               </div>
@@ -3677,10 +4042,13 @@ function UploadModal({
   step,
   files,
   isProfiling,
+  profile,
   reviewed,
   validated,
   semanticDraft,
   setSemanticDraft,
+  pipelineDraft,
+  setPipelineDraft,
   resetValidation,
   fileInputRef,
   close,
@@ -3695,11 +4063,16 @@ function UploadModal({
   step: number;
   files: File[];
   isProfiling: boolean;
+  profile: AssetProfile | null;
   reviewed: boolean;
   validated: boolean;
   semanticDraft: SemanticDraft;
   setSemanticDraft: (
     value: SemanticDraft | ((current: SemanticDraft) => SemanticDraft),
+  ) => void;
+  pipelineDraft: PipelineDraft;
+  setPipelineDraft: (
+    value: PipelineDraft | ((current: PipelineDraft) => PipelineDraft),
   ) => void;
   resetValidation: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -3711,6 +4084,7 @@ function UploadModal({
   validateSemantic: () => Promise<void>;
   publishUpload: () => Promise<void>;
 }) {
+  const { text } = useLanguage();
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 
   return (
@@ -3764,16 +4138,15 @@ function UploadModal({
               onClick={() => fileInputRef.current?.click()}
             >
               <span className="upload-cloud">↑</span>
-              <strong>Drop SQLite, CSV, or Parquet files here</strong>
-              <p>or click to browse · up to 25 MB per file</p>
+              <strong>Drop one CSV or Parquet asset here</strong>
+              <p>real profiling and publication · up to 25 MB</p>
               <span className="browse-button">Choose files</span>
             </button>
             <input
               ref={fileInputRef}
               className="visually-hidden"
               type="file"
-              multiple
-              accept=".sqlite,.db,.csv,.parquet"
+              accept=".csv,.parquet"
               onChange={handleFiles}
             />
             {files.length > 0 && (
@@ -3816,27 +4189,29 @@ function UploadModal({
               <div>
                 <strong>Physical profile complete</strong>
                 <p>
-                  NexusQL inferred a draft only. Business definitions still
-                  require human review.
+                  NexusQL read the uploaded rows and inferred a physical draft.
+                  Business definitions still require human review.
                 </p>
               </div>
             </div>
             <div className="profile-stats-grid">
               <div>
                 <span>Detected tables</span>
-                <strong>{Math.max(files.length, 1)}</strong>
+                <strong>1</strong>
               </div>
               <div>
                 <span>Candidate grain</span>
-                <strong>record_id</strong>
+                <strong>{profile?.candidate_primary_key ?? "—"}</strong>
               </div>
               <div>
                 <span>Dimensions</span>
-                <strong>7</strong>
+                <strong>{profile?.column_count ?? 0}</strong>
               </div>
               <div>
                 <span>Quality warnings</span>
-                <strong className="warning-text">2</strong>
+                <strong className="warning-text">
+                  {profile?.quality_warnings.length ?? 0}
+                </strong>
               </div>
             </div>
             <div className="profile-table-preview">
@@ -3846,16 +4221,22 @@ function UploadModal({
                 <span>Semantic role</span>
                 <span>Quality</span>
               </div>
-              {[
-                ["record_id", "INTEGER", "Primary key", "Unique"],
-                ["entity_id", "INTEGER", "Entity key", "99.9%"],
-                ["recorded_at", "TIMESTAMP", "Time dimension", "100%"],
-                ["amount", "DECIMAL", "Candidate measure", "2 outliers"],
-              ].map((row) => (
-                <div key={row[0]}>
-                  {row.map((cell, index) => (
-                    <span key={index}>{cell}</span>
-                  ))}
+              {(profile?.columns ?? []).slice(0, 8).map((column) => (
+                <div key={column.name}>
+                  <span>{column.name}</span>
+                  <span>{column.data_type.toUpperCase()}</span>
+                  <span>
+                    {column.name === profile?.candidate_primary_key
+                      ? "Primary key candidate"
+                      : column.name === profile?.candidate_watermark
+                        ? "Watermark candidate"
+                        : "Dimension / measure"}
+                  </span>
+                  <span>
+                    {column.null_rate === 0
+                      ? `${Math.round(column.distinct_rate * 100)}% distinct`
+                      : `${Math.round(column.null_rate * 100)}% null`}
+                  </span>
                 </div>
               ))}
             </div>
@@ -3953,6 +4334,13 @@ function UploadModal({
                           ...current,
                           primaryKey: event.target.value,
                         }));
+                        setPipelineDraft((current) => ({
+                          ...current,
+                          uniqueKey: event.target.value
+                            .split(",")
+                            .map((value) => value.trim())
+                            .filter(Boolean),
+                        }));
                         setReviewed(false);
                         resetValidation();
                       }}
@@ -3978,6 +4366,104 @@ function UploadModal({
                     </select>
                   </label>
                 </div>
+                <div className="form-pair">
+                  <label>
+                    <span>Watermark field</span>
+                    <select
+                      value={pipelineDraft.watermarkField}
+                      onChange={(event) => {
+                        setPipelineDraft((current) => ({
+                          ...current,
+                          watermarkField: event.target.value,
+                        }));
+                        setReviewed(false);
+                        resetValidation();
+                      }}
+                    >
+                      <option value="">No incremental watermark</option>
+                      {(profile?.columns ?? []).map((column) => (
+                        <option value={column.name} key={column.name}>
+                          {column.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Max invalid ratio</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={pipelineDraft.maxInvalidRatio}
+                      onChange={(event) => {
+                        setPipelineDraft((current) => ({
+                          ...current,
+                          maxInvalidRatio: Number(event.target.value),
+                        }));
+                        setReviewed(false);
+                        resetValidation();
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="form-pair">
+                  <label>
+                    <span>{text("Late-data lookback (seconds)", "迟到数据回看窗口（秒）")}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="2592000"
+                      step="60"
+                      disabled={!pipelineDraft.watermarkField}
+                      value={pipelineDraft.watermarkLookbackSeconds}
+                      onChange={(event) => {
+                        setPipelineDraft((current) => ({
+                          ...current,
+                          watermarkLookbackSeconds: Number(event.target.value),
+                        }));
+                        setReviewed(false);
+                        resetValidation();
+                      }}
+                    />
+                    <small>{text("Re-read a bounded interval before the saved Watermark.", "从已保存 Watermark 之前回读一段有界区间。")}</small>
+                  </label>
+                  <label>
+                    <span>{text("Publication mode", "发布模式")}</span>
+                    <select
+                      value={pipelineDraft.publishMode}
+                      onChange={(event) => {
+                        setPipelineDraft((current) => ({
+                          ...current,
+                          publishMode: event.target.value as PipelineDraft["publishMode"],
+                        }));
+                        setReviewed(false);
+                        resetValidation();
+                      }}
+                    >
+                      <option value="upsert">UPSERT · {text("insert or correct by key", "按业务键新增或修正")}</option>
+                      <option value="append">APPEND · {text("new keys only", "仅追加新业务键")}</option>
+                    </select>
+                    <small>{text("Upsert requires the reviewed unique key.", "Upsert 必须使用经过审核的唯一键。")}</small>
+                  </label>
+                </div>
+                <label>
+                  <span>Required columns</span>
+                  <input
+                    value={pipelineDraft.requiredColumns.join(", ")}
+                    onChange={(event) => {
+                      setPipelineDraft((current) => ({
+                        ...current,
+                        requiredColumns: event.target.value
+                          .split(",")
+                          .map((value) => value.trim())
+                          .filter(Boolean),
+                      }));
+                      setReviewed(false);
+                      resetValidation();
+                    }}
+                  />
+                </label>
               </div>
               <div className="semantic-draft-summary">
                 <span className="panel-kicker">GENERATED CONTRACT</span>
@@ -3995,7 +4481,11 @@ function UploadModal({
                 </div>
                 <div>
                   <span>Quality rules</span>
-                  <strong>6</strong>
+                  <strong>
+                    {pipelineDraft.requiredColumns.length +
+                      pipelineDraft.uniqueKey.length +
+                      (pipelineDraft.watermarkField ? 1 : 0)}
+                  </strong>
                 </div>
                 {semanticDraft.metrics.map((metric) => (
                   <code key={metric.name}>{metric.name}</code>
@@ -4047,10 +4537,10 @@ function UploadModal({
               </button>
               <button
                 className="primary-button success-button"
-                disabled={!reviewed || !validated}
+                disabled={!reviewed || !validated || isProfiling}
                 onClick={() => void publishUpload()}
               >
-                Publish data + semantics
+                {isProfiling ? "Publishing governed asset…" : "Publish data + semantics"}
               </button>
             </div>
           </div>

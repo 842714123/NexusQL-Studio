@@ -72,7 +72,7 @@ watermark 表示已经成功发布的最大增量位置，可以是时间或单�
 
 如果先推进 watermark 再发布，发布失败后就会永久跳过没有成功处理的数据。
 
-当前 PipelineRuntime 使用非阻塞进程内锁，避免同一 API 进程重复执行样例管道。它不是分布式锁；多实例部署应使用 PostgreSQL advisory lock、Redis lease 或调度系统唯一任务约束。
+当前 `PipelineRunOrchestrator` 先把任务状态写入 SQLite，再由单进程 Worker 串行执行；`PipelineRuntime` 的非阻塞锁仍作为执行边界保护。它们都不是分布式锁，多实例部署应使用 PostgreSQL advisory lock、Redis lease 或调度系统唯一任务约束。
 
 ## 5. 原子发布与回滚
 
@@ -99,8 +99,9 @@ watermark 表示已经成功发布的最大增量位置，可以是时间或单�
 
 - FastAPI 路由只暴露用例，不重复实现管道核心逻辑。
 - GET /engineering/pipeline/status 只读查询持久化状态。
-- POST /engineering/pipeline/run 发起受控样例管道。
-- 当前数据量小，所以同步返回；生产版应返回 202 和 run id，再轮询或通过 SSE 更新。
+- POST /engineering/pipeline/runs 返回 202 和 run id；GET 单次任务用于轮询终态。
+- retry 创建新 attempt 并保留 retry_of；cancel 只取消排队任务，不强杀原子发布。
+- 当前状态机和 Worker 是本地单进程实现；生产版应替换为外部队列、跨实例租约和 SSE。
 - 浏览器不能传任意本地配置路径，避免路径穿越和执行未审核资产配置。
 - React 工作台展示 DAG、SLA、质量、血缘、watermark 和最近运行，并支持中英文偏好持久化。
 
@@ -115,7 +116,7 @@ watermark 表示已经成功发布的最大增量位置，可以是时间或单�
 5. 第二次运行前后 watermark 不变。
 6. API 状态与运行结果合同一致。
 
-完整回归当前运行 252 项测试，251 项通过，1 项平台条件跳过；前端通过 ESLint、TypeScript 和生产构建。
+完整回归当前运行 260 项测试，259 项通过，1 项可选依赖跳过；前端通过 TypeScript 和生产构建。
 
 ## 9. 高频问题与回答
 
@@ -125,7 +126,7 @@ watermark 表示已经成功发布的最大增量位置，可以是时间或单�
 
 ### Q2：如何处理迟到数据？
 
-当前 demo 按严格大于 watermark 处理。生产方案会加入 lookback window，每次回看一定范围，再用业务主键和 upsert 去重。回答时要说明这是规划中的增强，不要说已经实现。
+当前已实现 ISO 时间 Watermark 的有界 lookback window，并使用审核业务键、数据库唯一索引和 Upsert 消化迟到/修正记录；Watermark 仍只在整批成功后向前推进。当前边界是 SQLite 和单值游标，生产仍需复合游标、谓词下推及 PostgreSQL/湖仓 MERGE。
 
 ### Q3：如何保证幂等？
 
@@ -169,13 +170,13 @@ watermark 表示已经成功发布的最大增量位置，可以是时间或单�
 4. 使用 INSERT ON CONFLICT 实现幂等 upsert。
 5. 用 Testcontainers 做真实 PostgreSQL 集成测试。
 
-### 增加异步调度
+### 异步调度：当前实现与生产演进
 
-- API 创建 run record、投递任务，返回 202 和 run id。
-- Worker 获取资产级租约并执行 queued -> running -> succeeded/failed/cancelled。
-- 记录每阶段 attempt、耗时、输入输出行数和错误类型。
-- 暂时性错误指数退避；数据契约失败不应盲目自动重试。
-- Studio 通过轮询或 SSE 展示进度。
+- **已实现**：API 创建持久化 run record，返回 202 和 run id。
+- **已实现**：本地 Worker 执行 queued -> running -> succeeded/failed/cancelled。
+- **已实现**：记录 attempt、retry_of、排队/执行/阶段耗时和错误类型。
+- **已实现**：Studio 轮询状态；质量错误标记不可自动重试，但允许人工创建新 attempt。
+- **待生产化**：外部队列、资产租约、指数退避、幂等创建键、安全阶段取消和 SSE。
 
 ### 增加字段级血缘
 
@@ -203,7 +204,7 @@ Task：尽量不破坏原架构，将 builder 封装成稳定运行时和 API，
 
 Action：阅读资产与语义边界；增加 PipelineRuntime 汇总 lineage、watermark、quality report 和发布库；限制 API 只运行固定受控资产；把前端 DAG 和观测卡片接入真实响应；补充首次运行、二次幂等和 API 测试。
 
-Result：实测首次发布 5 行，4/4 质量门禁通过，watermark 为 2026-01-03；第二次发布 0 行且水位线不变；质量失败时隔离 1 行且不推进 watermark；完整回归覆盖 252 项测试。
+Result：实测首次发布 5 行，4/4 质量门禁通过，watermark 为 2026-01-03；第二次发布 0 行且水位线不变；质量失败时隔离 1 行且不推进 watermark；完整回归覆盖 260 项测试。
 
 ## 13. 面试前必须亲手过一遍
 
@@ -237,7 +238,7 @@ Result：实测首次发布 5 行，4/4 质量门禁通过，watermark 为 2026-
 
 ### 14.2 60 秒版本
 
-“这个项目要解决的不是单纯生成 SQL，而是数据如何可信地进入分析系统，以及 AI 如何在受治理的语义和安全边界内查询。我在同事原项目的基础上做二次开发：第一，把 CSV 经过字段规范化、staging、质量门禁、quarantine 和原子发布构建成 SQLite 分析资产；第二，用 watermark 记录最后成功位置，实现增量与幂等；第三，增加 PipelineRuntime 和 FastAPI 接口，把行数、质量、血缘、水位线和运行历史接到 React/TypeScript 双语工作台；第四，增加受控质量失败场景，证明失败时发布 0 行、水位线不推进，而且审计证据不会随发布回滚消失。当前完整回归是 252 项测试。”
+“这个项目要解决的不是单纯生成 SQL，而是数据如何可信地进入分析系统，以及 AI 如何在受治理的语义和安全边界内查询。我在同事原项目的基础上做二次开发：第一，把 CSV 经过字段规范化、staging、质量门禁、quarantine 和原子发布构建成 SQLite 分析资产；第二，用 watermark 记录最后成功位置，实现增量与幂等；第三，增加 PipelineRuntime 和 FastAPI 接口，把行数、质量、血缘、水位线和运行历史接到 React/TypeScript 双语工作台；第四，增加受控质量失败场景，证明失败时发布 0 行、水位线不推进，而且审计证据不会随发布回滚消失。当前完整回归是 260 项测试。”
 
 适用：面试官问“介绍一个你最熟悉的项目”。
 
@@ -257,7 +258,7 @@ Result：实测首次发布 5 行，4/4 质量门禁通过，watermark 为 2026-
 
 第四段——结果和边界：
 
-“目前首次运行可发布 5 行，二次运行发布 0 行，质量失败隔离 1 行并保持水位线 2026-01-03。项目有 252 项测试。当前边界是 SQLite、单进程锁和本地受控部署；生产化会优先增加 PostgreSQL adapter、异步状态机和迟到数据 upsert。”
+“目前首次运行可发布 5 行，二次运行发布 0 行，质量失败隔离 1 行并保持水位线 2026-01-03。项目实现了有界 Lookback 与唯一键 Upsert，也有 SQLite 持久化异步状态机和单进程 Worker；生产化仍需 PostgreSQL adapter、外部任务队列、跨实例租约和复合游标。”
 
 ## 15. 代码级调用链
 
@@ -1106,7 +1107,7 @@ API read model 限制返回量，避免页面无限增长。底层可以长期�
 1. PipelineRuntime 还承担 demo scenario 构造，应拆分。
 2. page.tsx 较大，应按 feature 拆组件。
 3. API 缺少完整 Pydantic 响应模型。
-4. 同步运行不适合长任务。
+4. 自定义域发布仍同步；样例异步 Worker 仍不适合多实例长任务。
 5. 进程内锁不支持多实例。
 6. watermark 只有单值，不处理同时间戳和迟到数据。
 7. JSON 审计字段不适合复杂查询。
@@ -1146,7 +1147,7 @@ API read model 限制返回量，避免页面无限增长。底层可以长期�
 
 - 先跑针对性测试快速反馈。
 - 再跑数据资产与 API 集成测试。
-- 最后跑 252 项全量回归。
+- 最后跑 260 项全量回归。
 - 前端执行 ESLint、TypeScript 和生产构建。
 - 保留原有接口默认行为，scenario 默认为 standard。
 
@@ -1176,7 +1177,7 @@ API read model 限制返回量，避免页面无限增长。底层可以长期�
 错误：“SQLite 不专业。”  
 正确：“SQLite 适合本地可复现边界；知道何时迁移以及如何抽象更重要。”
 
-错误：“测试 252 项，所以系统没有问题。”  
+错误：“测试 260 项，所以系统没有问题。”
 正确：“测试降低回归风险，但覆盖率数字不能证明生产可靠性；还缺真实负载、故障注入和 PostgreSQL 集成。”
 
 ## 32. 白板绘图顺序
@@ -1354,7 +1355,7 @@ API read model 限制返回量，避免页面无限增长。底层可以长期�
 
 1. 先给结论，再讲实现，再说边界。
 2. 区分“当前已经实现”和“生产化计划”。
-3. 用真实数字：5 行、4/4、1 条隔离、watermark 2026-01-03、252 项测试。
+3. 用真实数字：5 行、4/4、1 条隔离、watermark 2026-01-03、260 项测试。
 4. 不把模型当安全边界。
 5. 不把 watermark 等同 exactly-once。
 6. 不回避 SQLite 和单进程锁限制。

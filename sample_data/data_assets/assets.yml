@@ -27,6 +27,7 @@ assets:
       Watched At: watched_at
       Watch Seconds: watch_seconds
     watermark_field: watched_at
+    publish_mode: upsert
     quality:
       required_columns: [event_id, anime_title, watched_at, watch_seconds]
       unique_key: [event_id]

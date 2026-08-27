@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -87,6 +88,21 @@ def is_after_watermark(
     return value is not None and compare_values(value, watermark_before) > 0
 
 
+def watermark_lower_bound(watermark: str | None, lookback_seconds: int) -> str | None:
+    """Move an ISO temporal watermark backwards for deterministic late-data replay."""
+    if watermark is None or lookback_seconds <= 0:
+        return watermark
+    parsed = _parse_temporal(watermark)
+    if parsed is None:
+        raise ValueError(
+            "watermark_lookback_seconds requires an ISO date or timestamp watermark"
+        )
+    lowered = parsed - timedelta(seconds=lookback_seconds)
+    if len(str(watermark)) == 10 and "T" not in str(watermark):
+        return lowered.date().isoformat()
+    return lowered.isoformat().replace("+00:00", "Z")
+
+
 def max_watermark(
     rows: list[dict[str, Any]],
     watermark_field: str | None,
@@ -120,9 +136,25 @@ def compare_values(left: Any, right: Any) -> int:
         decimal_right = Decimal(str(right))
         return (decimal_left > decimal_right) - (decimal_left < decimal_right)
     except (InvalidOperation, ValueError):
+        temporal_left = _parse_temporal(left)
+        temporal_right = _parse_temporal(right)
+        if temporal_left is not None and temporal_right is not None:
+            return (temporal_left > temporal_right) - (temporal_left < temporal_right)
         left_text = str(left)
         right_text = str(right)
         return (left_text > right_text) - (left_text < right_text)
+
+
+def _parse_temporal(value: Any) -> datetime | None:
+    text_value = str(value).strip()
+    try:
+        if len(text_value) == 10:
+            parsed_date = date.fromisoformat(text_value)
+            return datetime.combine(parsed_date, time.min, tzinfo=UTC)
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=parsed.tzinfo or UTC).astimezone(UTC)
+    except ValueError:
+        return None
 
 
 def normalize_fields(fields: list[str]) -> list[str]:

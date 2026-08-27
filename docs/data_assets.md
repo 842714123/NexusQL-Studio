@@ -73,6 +73,8 @@ assets:
       Anime Title: anime_title
       Watched At: watched_at
     watermark_field: watched_at
+    watermark_lookback_seconds: 86400
+    publish_mode: upsert
     quality:
       required_columns: [event_id, anime_title, watched_at]
       unique_key: [event_id]
@@ -119,8 +121,20 @@ source:
 - `watermark_field` publishes only values greater than the asset's last successful
   watermark. It cannot be combined with `publish_mode: replace`, preventing
   accidental replacement by a delta batch.
+- `watermark_lookback_seconds` moves the effective lower bound backwards for ISO
+  dates/timestamps, allowing a bounded replay of late or corrected records. The
+  persisted watermark never moves backwards.
+- `publish_mode: upsert` requires `quality.unique_key`, creates a database-level
+  unique index, inserts unseen keys, and updates mutable columns for existing
+  keys. Batch-level duplicate keys still go to Quarantine.
 - Append publication rejects schema drift rather than silently changing a published
   table. Use an explicit migration or `publish_mode: replace` for a full rebuild.
+
+With lookback plus upsert, the pipeline may stage records at or before the saved
+watermark. `details.late_rows` counts those replayed rows, while `inserted_rows`
+and `updated_rows` make target effects explicit. A record older than the bounded
+lower limit is ignored; a newer record can advance the watermark only after the
+whole data-and-semantic batch succeeds.
 
 The state database contains `asset_watermarks`, `asset_lineage`,
 `asset_quarantine`, and `semantic_catalog`. Each lineage row records source type and

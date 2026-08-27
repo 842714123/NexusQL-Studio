@@ -6,6 +6,8 @@
 - [Semantic layer authoring](semantic_authoring.md)
 - [Data asset ingestion](data_assets.md)
 - [NexusQL Studio](studio.md)
+- [Asynchronous pipeline orchestration (Chinese)](async_pipeline_orchestration_zh.md)
+- [Late-data Watermark lookback and Upsert (Chinese)](late_data_upsert_zh.md)
 - [REST API](api_reference.md)
 - [MCP server](mcp_server.md)
 
@@ -23,6 +25,7 @@
 
 ## Career Preparation (Chinese)
 
+- [Data engineering intern interview manual](data_engineering_intern_interview_manual_zh.md)
 - [NexusQL complete project and interview guide](nexusql_complete_guide_zh.md)
 - [Resume descriptions and improvement roadmap](career_resume_zh.md)
 - [Project interview guide and answer bank](interview_guide_zh.md)

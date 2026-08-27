@@ -6,10 +6,22 @@ import json
 from typing import Callable
 
 from queryforge import __version__
-from queryforge.interfaces.api.schemas import AskRequest, GatewayWebhookRequest
+from queryforge.interfaces.api.schemas import (
+    AskRequest,
+    AssetProfileRequest,
+    AssetPublishRequest,
+    GatewayWebhookRequest,
+    PipelineRunRequest,
+)
 from queryforge.interfaces.gateway import GatewayAdapter
 from queryforge.application import AgentService
 from queryforge.application.pipeline_runtime import PipelineRuntime
+from queryforge.application.pipeline_orchestrator import (
+    PipelineRunConflict,
+    PipelineRunNotFound,
+    PipelineRunOrchestrator,
+)
+from queryforge.application.studio_assets import StudioAssetService
 
 
 class APIUnavailableError(RuntimeError):
@@ -19,6 +31,8 @@ class APIUnavailableError(RuntimeError):
 def create_app(
     service: AgentService | None = None,
     pipeline_runtime: PipelineRuntime | None = None,
+    studio_asset_service: StudioAssetService | None = None,
+    pipeline_orchestrator: PipelineRunOrchestrator | None = None,
 ):
     try:
         from fastapi import FastAPI, HTTPException
@@ -31,6 +45,8 @@ def create_app(
 
     agent_service = service or AgentService()
     asset_pipeline = pipeline_runtime or PipelineRuntime()
+    pipeline_runs = pipeline_orchestrator or PipelineRunOrchestrator(asset_pipeline)
+    studio_assets = studio_asset_service or StudioAssetService()
     gateway = GatewayAdapter(agent_service)
     app = FastAPI(
         title="NexusQL API",
@@ -65,6 +81,47 @@ def create_app(
     @app.post("/engineering/pipeline/run")
     def pipeline_run(scenario: str = "standard"):
         return call(lambda: asset_pipeline.run(scenario=scenario))
+
+    @app.post("/engineering/pipeline/runs", status_code=202)
+    def create_pipeline_run(request: PipelineRunRequest):
+        return call(lambda: pipeline_runs.submit(request.scenario))
+
+    @app.get("/engineering/pipeline/runs")
+    def list_pipeline_runs(limit: int = 20):
+        return {"runs": pipeline_runs.list(limit=limit)}
+
+    @app.get("/engineering/pipeline/runs/{run_id}")
+    def get_pipeline_run(run_id: str):
+        try:
+            return pipeline_runs.get(run_id)
+        except PipelineRunNotFound as exc:
+            raise HTTPException(status_code=404, detail="Pipeline run not found") from exc
+
+    @app.post("/engineering/pipeline/runs/{run_id}/retry", status_code=202)
+    def retry_pipeline_run(run_id: str):
+        try:
+            return pipeline_runs.retry(run_id)
+        except PipelineRunNotFound as exc:
+            raise HTTPException(status_code=404, detail="Pipeline run not found") from exc
+        except PipelineRunConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/engineering/pipeline/runs/{run_id}/cancel")
+    def cancel_pipeline_run(run_id: str):
+        try:
+            return pipeline_runs.cancel(run_id)
+        except PipelineRunNotFound as exc:
+            raise HTTPException(status_code=404, detail="Pipeline run not found") from exc
+        except PipelineRunConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/engineering/assets/profile")
+    def profile_asset(request: AssetProfileRequest):
+        return call(lambda: studio_assets.profile(request))
+
+    @app.post("/engineering/assets/publish", status_code=201)
+    def publish_asset(request: AssetPublishRequest):
+        return call(lambda: studio_assets.publish(request))
 
     @app.post("/ask")
     def ask(request: AskRequest):
